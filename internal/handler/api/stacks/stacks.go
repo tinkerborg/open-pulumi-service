@@ -7,7 +7,7 @@ import (
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
-	"github.com/tinkerborg/open-pulumi-service/internal/api/stacks/stack"
+	"github.com/tinkerborg/open-pulumi-service/internal/handler/api/stacks/stack"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/crypto"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/state"
 	"github.com/tinkerborg/open-pulumi-service/internal/store"
@@ -18,13 +18,13 @@ func Setup(p *state.Service, c crypto.Service) router.Setup {
 	return func(r *router.Router) {
 		r.Mount("/", stack.Setup(p, c))
 
-		r.POST("/{owner}/{project}/{$}", func(r *http.Request) (any, error) {
+		r.POST("/{owner}/{project}/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 			owner := r.PathValue("owner")
 			project := r.PathValue("project")
 
 			var request *apitype.CreateStackRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				return nil, &router.HTTPError{Code: 400, Message: "invalid stack"}
+				return w.WithStatus(http.StatusBadRequest).Errorf("invalid stack: %s", err)
 			}
 
 			stack := &apitype.Stack{
@@ -38,12 +38,12 @@ func Setup(p *state.Service, c crypto.Service) router.Setup {
 
 			if err := p.CreateStack(stack); err != nil {
 				if errors.Is(err, store.ErrExist) {
-					return nil, &router.HTTPError{Code: 409, Message: "stack already exists"}
+					return w.WithStatus(http.StatusConflict).Errorf("stack already exists")
 				}
-				return nil, err
+				return w.Error(err)
 			}
 
-			return &apitype.CreateStackResponse{}, nil
+			return w.JSON(&apitype.CreateStackResponse{})
 		})
 
 	}

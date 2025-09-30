@@ -10,17 +10,17 @@ import (
 
 func Setup(p *state.Service) router.Setup {
 	return func(r *router.Router) {
-		r.GET("/", func(r *http.Request) (interface{}, error) {
-			return p.GetCurrentUser()
+		r.GET("/", func(w *router.ResponseWriter, r *http.Request) error {
+			return w.JSON(p.GetCurrentUser())
 		})
 
-		r.GET("/stacks/{$}", func(r *http.Request) (interface{}, error) {
+		r.GET("/stacks/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 			stacks, err := p.ListUserStacks()
 			if err != nil {
-				return nil, err
+				return w.Error(err)
 			}
 
-			return &apitype.ListStacksResponse{Stacks: stacks}, nil
+			return w.JSON(&apitype.ListStacksResponse{Stacks: stacks})
 		})
 	}
 }

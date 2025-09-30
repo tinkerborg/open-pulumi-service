@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/caarlos0/env"
-	"github.com/tinkerborg/open-pulumi-service/internal/api"
+	"github.com/tinkerborg/open-pulumi-service/internal/handler/api"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/crypto"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/state"
 	"github.com/tinkerborg/open-pulumi-service/internal/store"

@@ -29,10 +29,8 @@ func (d *DynamicPrefix[T]) Middleware(next http.Handler) http.Handler {
 
 		value, err := d.parser(r)
 		if err != nil {
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 
 		ctx := context.WithValue(r.Context(), dynamicPrefixKey{}, value)

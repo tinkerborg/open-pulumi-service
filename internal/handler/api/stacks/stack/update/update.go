@@ -34,37 +34,38 @@ func Setup(p *state.Service, prefix *middleware.DynamicPrefix[client.StackIdenti
 
 		r.Use(updateIdentifier.Middleware)
 
-		r.GET("/{$}", func(r *http.Request) (any, error) {
+		r.GET("/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 			identifier := updateIdentifier.Value(r)
 
 			results, err := p.GetUpdateResults(identifier)
 			if err != nil {
 				if errors.Is(err, store.ErrNotFound) {
-					return nil, &router.HTTPError{Code: 404, Message: "update not found"}
+					return w.WithStatus(http.StatusNotFound).Errorf("stack not found")
 				}
-				return nil, err
+				return w.Error(err)
 			}
 
-			return apitype.UpdateResults{
+			return w.JSON(apitype.UpdateResults{
 				Status: results.Status,
 				Events: []apitype.UpdateEvent{},
-			}, nil
+			})
 		})
 
-		r.POST("/", func(r *http.Request) (any, error) {
+		r.POST("/", func(w *router.ResponseWriter, r *http.Request) error {
 			identifier := updateIdentifier.Value(r)
 
 			var request apitype.StartUpdateRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				return nil, &router.HTTPError{Code: 400, Message: "invalid stack"}
+				return w.WithStatus(http.StatusBadRequest).Errorf("invalid request: %s", err)
 			}
 
 			version, err := p.StartUpdate(identifier)
 			if err != nil {
-				return nil, err
+				return w.Errorf("failed to start update: %s", err)
 			}
+
 			// tokenExpiration: Math.floor(new Date().getTime() / 1000) + 86400
-			return apitype.StartUpdateResponse{
+			return w.JSON(apitype.StartUpdateResponse{
 				Version: version,
 				// used in update complete/event requests w/ auth header "update-token X",
 				// should be a JWT:
@@ -82,15 +83,15 @@ func Setup(p *state.Service, prefix *middleware.DynamicPrefix[client.StackIdenti
 				//   "updateID": "d23b9399-120e-4034-ade0-07eee23aa9e6"
 				// }
 				Token: "foo",
-			}, nil
+			})
 		})
 
-		r.PATCH("/checkpoint", func(r *http.Request) (any, error) {
+		r.PATCH("/checkpoint", func(w *router.ResponseWriter, r *http.Request) error {
 			identifier := updateIdentifier.Value(r)
 
 			var request apitype.PatchUpdateCheckpointRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				return nil, &router.HTTPError{Code: 400, Message: "invalid checkpoint request"}
+				return w.WithStatus(http.StatusBadRequest).Errorf("invalid checkpoint: %s", err)
 			}
 
 			checkpoint := &apitype.VersionedCheckpoint{
@@ -100,61 +101,60 @@ func Setup(p *state.Service, prefix *middleware.DynamicPrefix[client.StackIdenti
 			}
 
 			if err := p.CheckpointUpdate(identifier, checkpoint); err != nil {
-				return nil, err
+				return w.Errorf("checkpoint failed: %s", err)
 			}
 
 			// TODO - figure out what this response should actually be
-			return model.CompleteUpdateResponse{
+			return w.JSON(model.CompleteUpdateResponse{
 				Version: 2,
-			}, nil
+			})
 		})
 
 		// TODO - what happens on official API when you start an update, start and complete a different update, and then
 		//        complete the first udpate? how do version numbers work?
-		r.POST("/complete", func(r *http.Request) (any, error) {
+		r.POST("/complete", func(w *router.ResponseWriter, r *http.Request) error {
 			identifier := updateIdentifier.Value(r)
 
 			var request *apitype.CompleteUpdateRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				return nil, &router.HTTPError{Code: 400, Message: "invalid stack"}
+				return w.WithStatus(http.StatusBadRequest).Errorf("invalid request: %s", err)
 			}
 
 			version, err := p.CompleteUpdate(identifier, request.Status)
 			if err != nil {
-				return nil, err
+				return w.Errorf("failed to complete update: %s", err)
 			}
 
-			return model.CompleteUpdateResponse{
+			return w.JSON(model.CompleteUpdateResponse{
 				Version: *version,
-			}, nil
+			})
 		})
 
 		// TODO filtering
-		r.GET("/events", func(r *http.Request) (any, error) {
+		r.GET("/events", func(w *router.ResponseWriter, r *http.Request) error {
 			identifier := updateIdentifier.Value(r)
 
 			events, err := p.ListEngineEvents(identifier)
 			if err != nil {
-				return nil, err
+				return w.Errorf("failed to list events: %s", err)
 			}
 
-			return events, nil
+			return w.JSON(events)
 		})
 
-		r.POST("/events/batch", func(r *http.Request) (any, error) {
+		r.POST("/events/batch", func(w *router.ResponseWriter, r *http.Request) error {
 			identifier := updateIdentifier.Value(r)
 
 			var request apitype.EngineEventBatch
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				return nil, &router.HTTPError{Code: 400, Message: "Invalid stack"}
+				return w.WithStatus(http.StatusBadRequest).Errorf("invalid batch: %s", err)
 			}
 
 			if err := p.AddEngineEvents(identifier, request.Events); err != nil {
-				return nil, err
+				return w.Errorf("failed to write events: %s", err)
 			}
 
-			return nil, nil
+			return nil
 		})
-
 	}
 }

@@ -1,32 +1,13 @@
 package router
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
 )
 
-// Middleware function type
 type Middleware func(http.Handler) http.Handler
-
-// HTTPError represents an error with an HTTP status code
-type HTTPError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
-
-// NewHTTPError creates a new HTTPError
-func NewHTTPError(code int, message string) *HTTPError {
-	return &HTTPError{Code: code, Message: message}
-}
-
-// Error implements the error interface
-func (e *HTTPError) Error() string {
-	return fmt.Sprintf("%d: %s", e.Code, e.Message)
-}
 
 type Router struct {
 	id          string
@@ -53,7 +34,8 @@ func (r *Router) Use(middlewares ...Middleware) {
 	r.middlewares = append(r.middlewares, middlewares...)
 }
 
-type RouterHandler func(r *http.Request) (any, error)
+type RouterHandler func(w *ResponseWriter, r *http.Request) error
+
 type Setup func(r *Router)
 
 func (r *Router) GET(routePath string, handler RouterHandler, middlewares ...Middleware) {
@@ -94,14 +76,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		modReq.URL.Path += "/"
 	}
 
-	var handler http.Handler
-	handler = r.mux
-
-	for i := len(r.middlewares) - 1; i >= 0; i-- {
-		handler = r.middlewares[i](handler)
-	}
-
-	handler.ServeHTTP(w, &modReq)
+	applyMiddleware(r.mux, r.middlewares).ServeHTTP(w, &modReq)
 }
 
 func (r *Router) addRoute(method, routePath string, handler RouterHandler, middlewares ...Middleware) {
@@ -110,28 +85,18 @@ func (r *Router) addRoute(method, routePath string, handler RouterHandler, middl
 	}
 
 	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp, err := handler(r)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			if httpErr, ok := err.(*HTTPError); ok {
-				w.WriteHeader(httpErr.Code)
-				json.NewEncoder(w).Encode(httpErr)
-			} else {
-				w.WriteHeader(http.StatusInternalServerError)
-				json.NewEncoder(w).Encode(HTTPError{Code: http.StatusInternalServerError, Message: err.Error()})
-			}
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(HTTPError{Code: http.StatusInternalServerError, Message: "Failed to encode response"})
-		}
+		handler(&ResponseWriter{ResponseWriter: w}, r)
 	})
 
-	r.mux.Handle(method+" "+routePath, wrappedHandler)
+	r.mux.Handle(method+" "+routePath, applyMiddleware(wrappedHandler, middlewares))
+}
+
+func applyMiddleware(handler http.Handler, middlewares []Middleware) http.Handler {
+	for i := len(middlewares) - 1; i >= 0; i-- {
+		handler = middlewares[i](handler)
+	}
+
+	return handler
 }
 
 // // Normalize trailing slashes

@@ -13,7 +13,7 @@ import (
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate/client"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
-	"github.com/tinkerborg/open-pulumi-service/internal/api/stacks/stack/update"
+	"github.com/tinkerborg/open-pulumi-service/internal/handler/api/stacks/stack/update"
 	"github.com/tinkerborg/open-pulumi-service/internal/model"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/crypto"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/state"
@@ -45,87 +45,85 @@ func Setup(p *state.Service, c crypto.Service) router.Setup {
 
 		r.Mount("/", update.Setup(p, stackIdentifier))
 
-		r.GET("/", func(r *http.Request) (any, error) {
+		r.GET("/", func(w *router.ResponseWriter, r *http.Request) error {
 			identifier := stackIdentifier.Value(r)
 
 			stack, err := p.GetStack(identifier)
 			if errors.Is(err, store.ErrNotFound) {
-				return &apitype.Stack{}, &router.HTTPError{Code: 404, Message: "stack not found"}
+				return w.WithStatus(http.StatusNotFound).Errorf("stack not found")
 			}
 
 			if err != nil {
 				fmt.Printf("ERR %s\n", err)
 			}
 
-			return stack, err
+			return w.JSON(stack)
 		})
 
-		r.DELETE("/", func(r *http.Request) (any, error) {
+		r.DELETE("/", func(w *router.ResponseWriter, r *http.Request) error {
 			// TODO - delete resources associated with stack
 			identifier := stackIdentifier.Value(r)
-			return nil, p.DeleteStack(identifier)
+			return w.Error(p.DeleteStack(identifier))
 		})
 
-		r.GET("/export", func(r *http.Request) (any, error) {
+		r.GET("/export", func(w *router.ResponseWriter, r *http.Request) error {
 			identifier := stackIdentifier.Value(r)
 
 			deployment, err := p.GetStackDeployment(identifier)
 			// TODO - consistency store/state here
 			if errors.Is(err, store.ErrNotFound) {
-				return nil, &router.HTTPError{Code: 404, Message: "update not found"}
+				return w.WithStatus(http.StatusNotFound).Errorf("update not found")
 			}
 
-			return deployment, err
+			return w.JSON(deployment)
 		})
 
-		r.POST("/encrypt", func(r *http.Request) (any, error) {
+		r.POST("/encrypt", func(w *router.ResponseWriter, r *http.Request) error {
 			ctx := r.Context()
 
 			var request apitype.EncryptValueRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				return nil, &router.HTTPError{Code: 400, Message: "invalid payload"}
+				return w.WithStatus(http.StatusBadRequest).Errorf("invalid payload: %s", err)
 			}
 
 			encrypted, err := c.Encrypt(ctx, request.Plaintext)
 			if err != nil {
-				return nil, err
+				return w.Errorf("encryption failed: %s", err)
 			}
 
-			return &apitype.EncryptValueResponse{
+			return w.JSON(&apitype.EncryptValueResponse{
 				Ciphertext: encrypted,
-			}, nil
+			})
 		})
 
-		r.POST("/decrypt", func(r *http.Request) (any, error) {
+		r.POST("/decrypt", func(w *router.ResponseWriter, r *http.Request) error {
 			ctx := r.Context()
 
 			buf := new(strings.Builder)
 			io.Copy(buf, r.Body)
 
-			if false {
-				var request apitype.DecryptValueRequest
-				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-					return nil, &router.HTTPError{Code: 400, Message: "invalid stack"}
-				}
-
-				decrypted, err := c.Decrypt(ctx, request.Ciphertext)
-				if err != nil {
-					return nil, err
-				}
-
-				return apitype.DecryptValueResponse{
-					Plaintext: decrypted,
-				}, nil
+			// TODO check if this works
+			var request apitype.DecryptValueRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				return w.WithStatus(http.StatusBadRequest).Errorf("invalid payload: %s", err)
 			}
-			return nil, nil
+
+			decrypted, err := c.Decrypt(ctx, request.Ciphertext)
+			if err != nil {
+				return w.Errorf("decryption failed: %s", err)
+			}
+
+			return w.JSON(apitype.DecryptValueResponse{
+				Plaintext: decrypted,
+			})
 		})
 
-		r.POST("/batch-decrypt", func(r *http.Request) (any, error) {
+		r.POST("/batch-decrypt", func(w *router.ResponseWriter, r *http.Request) error {
 			ctx := r.Context()
 
 			var request apitype.BatchDecryptRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				return nil, &router.HTTPError{Code: 400, Message: "invalid stack"}
+				return w.WithStatus(http.StatusBadRequest).Errorf("invalid batch: %s", err)
 			}
 
 			plaintexts := map[string][]byte{}
@@ -136,46 +134,47 @@ func Setup(p *state.Service, c crypto.Service) router.Setup {
 
 				decrypted, err := c.Decrypt(ctx, ciphertext)
 				if err != nil {
-					return nil, err
+					return w.Errorf("decryption failed: %s", err)
 				}
 
 				plaintexts[string(key)] = decrypted
 			}
 
-			return &apitype.BatchDecryptResponse{
+			return w.JSON(&apitype.BatchDecryptResponse{
 				Plaintexts: plaintexts,
-			}, nil
+			})
 		})
 
-		r.POST("/import", func(r *http.Request) (any, error) {
+		r.POST("/import", func(w *router.ResponseWriter, r *http.Request) error {
 			// TODO - support resource import update
 			identifier := client.UpdateIdentifier{
 				StackIdentifier: stackIdentifier.Value(r),
 				UpdateKind:      apitype.StackImportUpdate,
 			}
 
+			// TODO - utility for this
 			var request *apitype.UntypedDeployment
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				return nil, &router.HTTPError{Code: 400, Message: "invalid update"}
+				return w.WithStatus(http.StatusBadRequest).Errorf("invalid update: %s", err)
 			}
 
 			updateID, err := p.CreateImport(identifier, request)
 			if err != nil {
-				return nil, err
+				return w.Errorf("import failed: %s", err)
 			}
 
-			return apitype.ImportStackResponse{UpdateID: updateID}, nil
+			return w.JSON(apitype.ImportStackResponse{UpdateID: updateID})
 		})
 
-		r.POST("/{updateKind}", func(r *http.Request) (any, error) {
+		r.POST("/{updateKind}", func(w *router.ResponseWriter, r *http.Request) error {
 			identifier, err := updateIdentifier(stackIdentifier, r)
 			if err != nil {
-				return nil, err
+				return w.WithStatus(http.StatusBadRequest).Error(err)
 			}
 
 			var request *apitype.UpdateProgramRequest
 			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-				return nil, &router.HTTPError{Code: 400, Message: "invalid update"}
+				return w.WithStatus(http.StatusBadRequest).Errorf("invalid update: %s", err)
 			}
 
 			// TODO - figure out what this should actually do - missing fields in updateprogram,
@@ -188,27 +187,29 @@ func Setup(p *state.Service, c crypto.Service) router.Setup {
 
 			updateID, err := p.CreateUpdate(identifier, updateProgram, &request.Options, request.Config, &request.Metadata)
 			if err != nil {
-				return nil, err
+				return w.Errorf("failed to create update: %s", err)
 			}
 
-			return apitype.UpdateProgramResponse{UpdateID: *updateID, RequiredPolicies: []apitype.RequiredPolicy{}}, nil
+			return w.JSON(apitype.UpdateProgramResponse{
+				UpdateID:         *updateID,
+				RequiredPolicies: []apitype.RequiredPolicy{},
+			})
 		})
 
-		r.GET("/updates/{version}", func(r *http.Request) (any, error) {
+		r.GET("/updates/{version}", func(w *router.ResponseWriter, r *http.Request) error {
 			version, err := strconv.Atoi(r.PathValue("version"))
 			if err != nil {
-				return nil, err
+				return w.WithStatus(http.StatusBadRequest).Error(err)
 			}
 
-			// TODO
 			identifier := stackIdentifier.Value(r)
 
 			update, err := p.GetStackUpdate(identifier, version)
 			if errors.Is(err, store.ErrNotFound) {
-				return nil, &router.HTTPError{Code: 404, Message: "update not found"}
+				return w.WithStatus(http.StatusNotFound).Errorf("update not found")
 			}
 
-			return update, err
+			return w.JSON(update)
 		})
 
 	}

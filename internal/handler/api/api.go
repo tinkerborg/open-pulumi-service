@@ -1,8 +1,8 @@
 package api
 
 import (
-	"github.com/tinkerborg/open-pulumi-service/internal/api/stacks"
-	"github.com/tinkerborg/open-pulumi-service/internal/api/user"
+	"github.com/tinkerborg/open-pulumi-service/internal/handler/api/stacks"
+	"github.com/tinkerborg/open-pulumi-service/internal/handler/api/user"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/crypto"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/state"
 	"github.com/tinkerborg/open-pulumi-service/pkg/router"
