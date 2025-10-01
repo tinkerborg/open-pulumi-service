@@ -3,14 +3,18 @@ package store
 import (
 	"errors"
 	"log"
+	"os"
 	"reflect"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type Postgres struct {
-	db *gorm.DB
+	db          *gorm.DB
+	primaryKeys map[interface{}][]string
 }
 
 type Model[T any] interface {
@@ -20,13 +24,24 @@ type Model[T any] interface {
 func NewPostgres(connectionString string) (*Postgres, error) {
 	db, err := gorm.Open(postgres.Open(connectionString), &gorm.Config{
 		TranslateError: true,
-		// Logger:         logger.Default.LogMode(logger.Error),
+		Logger: logger.New(
+			log.New(os.Stdout, "\r\n", log.LstdFlags),
+			logger.Config{
+				SlowThreshold:             time.Second,
+				LogLevel:                  logger.Warn,
+				IgnoreRecordNotFoundError: true,
+				Colorful:                  false,
+			},
+		),
 	})
+
 	if err != nil {
 		return nil, err
 	}
 
-	return &Postgres{db}, nil
+	primaryKeys := map[interface{}][]string{}
+
+	return &Postgres{db, primaryKeys}, nil
 }
 
 func (p *Postgres) Create(record interface{}) error {
@@ -39,6 +54,10 @@ func (p *Postgres) Create(record interface{}) error {
 }
 
 func (p *Postgres) Read(record interface{}) error {
+	if err := p.validatePrimaryKey(record); err != nil {
+		return err
+	}
+
 	err := p.db.First(ensurePtr(record)).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrNotFound
@@ -79,16 +98,6 @@ func (p *Postgres) Transaction(fc func(p *Postgres) error) error {
 		db := &Postgres{db: tx}
 		return fc(db)
 	})
-	return nil
-}
-
-func (p *Postgres) RegisterSchemas(schemas ...interface{}) error {
-	for _, schema := range schemas {
-		if err := p.db.AutoMigrate(ensurePtr(schema)); err != nil {
-			log.Fatalf("schema auto-migration failed: %s", err)
-		}
-	}
-
 	return nil
 }
 
