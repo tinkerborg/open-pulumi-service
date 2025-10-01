@@ -80,6 +80,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) addRoute(method, routePath string, handler RouterHandler, middlewares ...Middleware) {
+	// TODO - figure out the slash stuff once and for all
 	if routePath == "/" {
 		routePath = path.Join(routePath, "{$}")
 	}
@@ -98,12 +99,3 @@ func applyMiddleware(handler http.Handler, middlewares []Middleware) http.Handle
 
 	return handler
 }
-
-// // Normalize trailing slashes
-// if strings.TrimPrefix(modReq.URL.Path, prefix+"/") != "" {
-// 	if modReq.URL.Path == modReq.RequestURI {
-// 		modReq.URL.Path = modReq.URL.Path + "/"
-// 	} else {
-// 		modReq.URL.Path = strings.TrimSuffix(modReq.URL.Path, "/")
-// 	}
-// }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+
+	"github.com/tinkerborg/open-pulumi-service/internal/store"
 )
 
 type ResponseWriter struct {
@@ -12,16 +14,10 @@ type ResponseWriter struct {
 	statusCode int
 }
 
-func (w ResponseWriter) JSON(response any, errors ...error) error {
+func (w ResponseWriter) JSON(response any) error {
 	w.Header().Set("Content-Type", "application/json")
 
 	return json.NewEncoder(w).Encode(response)
-	// if err := json.NewEncoder(&buf).Encode(response); err != nil {
-	// w.WriteHeader(http.StatusInternalServerError)
-	// json.NewEncoder(w).Encode(HTTPError{Code: http.StatusInternalServerError, Message: "Failed to encode response"})
-	// }
-
-	// return w.Write(buf.Bytes())
 }
 
 func (w *ResponseWriter) WriteHeader(statusCode int) {
@@ -37,20 +33,18 @@ func (w ResponseWriter) WithStatus(statusCode int) ResponseWriter {
 // HANDLE NIL ERRORS
 func (w ResponseWriter) Error(err error) error {
 	if w.statusCode == 0 {
-		if err == nil {
-			return nil
+		if errors.Is(err, store.ErrNotFound) {
+			return w.WithStatus(http.StatusNotFound).Errorf("not found")
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-	}
-
-	if w.statusCode < 400 {
-		return nil
 	}
 
 	if err == nil {
 		err = errors.New(http.StatusText(w.statusCode))
 	}
 
+	// TODO - hide 500 error causes?
 	return json.NewEncoder(w).Encode(HTTPError{Code: w.statusCode, Message: err.Error()})
 }
 
