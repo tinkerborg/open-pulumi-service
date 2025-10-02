@@ -20,6 +20,7 @@ func (p *Service) CreateUpdate(
 	options *apitype.UpdateOptions,
 	config map[string]apitype.ConfigValue,
 	metadata *apitype.UpdateMetadata,
+	user *model.ServiceUser,
 ) (*string, error) {
 	stackRecord, err := readStackRecord(p.store, identifier.StackIdentifier)
 	if err != nil {
@@ -43,15 +44,12 @@ func (p *Service) CreateUpdate(
 	}
 
 	updateID := uuid.New().String()
-	identifier.UpdateID = updateID
 
-	user, err := p.GetCurrentUser()
-	if err != nil {
-		return nil, err
-	}
+	identifier.UpdateID = updateID
 
 	updateRecord := schema.UpdateRecord{
 		ID:        schema.NewUpdateID(identifier),
+		StackID:   schema.NewStackID(identifier.StackIdentifier),
 		Kind:      identifier.UpdateKind,
 		Update:    update,
 		Version:   stackRecord.Stack.Version + 1,
@@ -66,6 +64,7 @@ func (p *Service) CreateUpdate(
 			// TODO
 			// ContinuationToken:
 		},
+		// TODO should accept serviceuserinfo directly
 		RequestedBy: model.ServiceUserInfo{
 			Name:        user.Name,
 			GitHubLogin: user.GitHubLogin,
@@ -148,7 +147,7 @@ func (p *Service) CompleteUpdate(identifier client.UpdateIdentifier, status apit
 			stackRecord.Stack.ActiveUpdate = identifier.UpdateID
 
 			versionRecord := &schema.StackVersionRecord{
-				ID:       schema.NewStackID(identifier.StackIdentifier),
+				StackID:  schema.NewStackID(identifier.StackIdentifier),
 				Version:  updateRecord.Version,
 				UpdateID: updateRecord.ID,
 			}
@@ -174,7 +173,7 @@ func (p *Service) CompleteUpdate(identifier client.UpdateIdentifier, status apit
 
 func (p *Service) CheckpointUpdate(identifier client.UpdateIdentifier, checkpoint *apitype.VersionedCheckpoint) error {
 	checkpointRecord := schema.CheckpointRecord{
-		ID:         schema.NewUpdateID(identifier),
+		UpdateID:   schema.NewUpdateID(identifier),
 		Checkpoint: checkpoint,
 	}
 
@@ -192,7 +191,7 @@ func (p *Service) AddEngineEvents(identifier client.UpdateIdentifier, events []a
 	if err := p.store.Transaction(func(s *store.Postgres) error {
 		for _, event := range events {
 			eventRecord := schema.EngineEventRecord{
-				ID:          updateID,
+				UpdateID:    updateID,
 				Sequence:    event.Sequence,
 				EngineEvent: &event,
 			}
@@ -229,7 +228,8 @@ func (p *Service) ListEngineEvents(identifier client.UpdateIdentifier) ([]apityp
 
 func (p *Service) CreateImport(identifier client.UpdateIdentifier, deployment *apitype.UntypedDeployment) (string, error) {
 	// TODO - fail update on errors
-	updateID, err := p.CreateUpdate(identifier, nil, nil, nil, nil)
+	// TODO - get user
+	updateID, err := p.CreateUpdate(identifier, nil, nil, nil, nil, nil)
 	if err != nil {
 		return "", err
 	}

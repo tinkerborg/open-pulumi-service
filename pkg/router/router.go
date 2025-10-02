@@ -8,63 +8,54 @@ import (
 )
 
 type Middleware func(http.Handler) http.Handler
+type RouterHandler func(w *ResponseWriter, r *http.Request) error
+type Setup func(r *Router)
 
 type Router struct {
-	id          string
 	mux         *http.ServeMux
-	handler     http.Handler
-	middlewares []Middleware
+	middlewares []*Middleware
 }
 
 func NewRouter() *Router {
 	mux := http.NewServeMux()
 	return &Router{
 		mux:         mux,
-		handler:     mux,
-		middlewares: []Middleware{},
-		id:          "unknown",
+		middlewares: []*Middleware{},
 	}
 }
 
-func (r *Router) ID(id string) {
-	r.id = id
-}
-
 func (r *Router) Use(middlewares ...Middleware) {
-	r.middlewares = append(r.middlewares, middlewares...)
-}
-
-type RouterHandler func(w *ResponseWriter, r *http.Request) error
-
-type Setup func(r *Router)
-
-func (r *Router) GET(routePath string, handler RouterHandler, middlewares ...Middleware) {
-	r.addRoute(http.MethodGet, routePath, handler, middlewares...)
-}
-
-func (r *Router) PATCH(routePath string, handler RouterHandler, middlewares ...Middleware) {
-	r.addRoute(http.MethodPatch, routePath, handler, middlewares...)
-}
-
-func (r *Router) POST(routePath string, handler RouterHandler, middlewares ...Middleware) {
-	r.addRoute(http.MethodPost, routePath, handler, middlewares...)
-}
-
-func (r *Router) PUT(routePath string, handler RouterHandler, middlewares ...Middleware) {
-	r.addRoute(http.MethodPut, routePath, handler, middlewares...)
-}
-
-func (r *Router) DELETE(routePath string, handler RouterHandler, middlewares ...Middleware) {
-	r.addRoute(http.MethodDelete, routePath, handler, middlewares...)
+	r.middlewares = append(r.middlewares, pointers(middlewares)...)
 }
 
 func (r *Router) Mount(prefix string, register func(*Router), middlewares ...Middleware) {
 	prefix = strings.TrimSuffix(prefix, "/")
 	child := NewRouter()
+	child.middlewares = r.middlewares
 
 	register(child)
 
 	r.mux.Handle(prefix+"/", http.StripPrefix(prefix, child))
+}
+
+func (r *Router) WithPrefix(prefix string, options ...Middleware) *Router {
+	prefix = strings.TrimSuffix(prefix, "/")
+	child := NewRouter()
+	child.middlewares = r.middlewares
+
+	r.mux.Handle(prefix+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pattern := strings.Split(strings.TrimSuffix(r.Pattern, "/"), "/")
+		prefix := strings.Join(strings.Split(r.URL.Path, "/")[:len(pattern)], "/")
+
+		handler := applyMiddleware(child, pointers(options))
+		http.StripPrefix(prefix, handler).ServeHTTP(w, r)
+	}))
+
+	return child
+}
+
+func (r *Router) Do(do func(r *Router)) {
+	do(r)
 }
 
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -76,26 +67,69 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		modReq.URL.Path += "/"
 	}
 
-	applyMiddleware(r.mux, r.middlewares).ServeHTTP(w, &modReq)
+	muxHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		_, pattern := r.mux.Handler(req)
+
+		// if no route matched, apply middleware to handle 404
+		if pattern == "" {
+			applyMiddleware(r.mux, r.middlewares).ServeHTTP(w, req)
+			return
+		}
+
+		r.mux.ServeHTTP(w, req)
+	})
+
+	muxHandler.ServeHTTP(w, &modReq)
 }
 
-func (r *Router) addRoute(method, routePath string, handler RouterHandler, middlewares ...Middleware) {
+func (r *Router) GET(routePath string, handler RouterHandler, options ...Middleware) {
+	r.addRoute(http.MethodGet, routePath, handler, options...)
+}
+
+func (r *Router) PATCH(routePath string, handler RouterHandler, options ...Middleware) {
+	r.addRoute(http.MethodPatch, routePath, handler, options...)
+}
+
+func (r *Router) POST(routePath string, handler RouterHandler, options ...Middleware) {
+	r.addRoute(http.MethodPost, routePath, handler, options...)
+}
+
+func (r *Router) PUT(routePath string, handler RouterHandler, options ...Middleware) {
+	r.addRoute(http.MethodPut, routePath, handler, options...)
+}
+
+func (r *Router) DELETE(routePath string, handler RouterHandler, options ...Middleware) {
+	r.addRoute(http.MethodDelete, routePath, handler, options...)
+}
+
+func (r *Router) addRoute(method, routePath string, routeHandler RouterHandler, options ...Middleware) {
 	// TODO - figure out the slash stuff once and for all
 	if routePath == "/" {
 		routePath = path.Join(routePath, "{$}")
 	}
 
-	wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handler(&ResponseWriter{ResponseWriter: w}, r)
+	handlerFunc := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routeHandler(&ResponseWriter{ResponseWriter: w}, r)
 	})
 
-	r.mux.Handle(method+" "+routePath, applyMiddleware(wrappedHandler, middlewares))
+	handler := applyMiddleware(handlerFunc, append(pointers(options), r.middlewares...))
+
+	r.mux.Handle(method+" "+routePath, handler)
 }
 
-func applyMiddleware(handler http.Handler, middlewares []Middleware) http.Handler {
+func applyMiddleware[T ~func(http.Handler) http.Handler](handler http.Handler, middlewares []*T) http.Handler {
 	for i := len(middlewares) - 1; i >= 0; i-- {
-		handler = middlewares[i](handler)
+		middleware := *middlewares[i]
+		handler = middleware(handler)
 	}
 
 	return handler
+}
+
+func pointers[T any](values []T) []*T {
+	pointers := make([]*T, len(values))
+	for i, value := range values {
+		pointers[i] = &value
+	}
+	return pointers
 }

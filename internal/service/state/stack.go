@@ -27,7 +27,7 @@ func (p *Service) CreateStack(stack *apitype.Stack) error {
 			Project: stack.ProjectName,
 			Stack:   stackName,
 		}),
-		Stack: *stack,
+		Stack: stack,
 	}
 
 	if err := p.store.Create(&record); err != nil {
@@ -43,7 +43,7 @@ func (p *Service) GetStack(identifier client.StackIdentifier) (*apitype.Stack, e
 		return nil, err
 	}
 
-	return &stackRecord.Stack, nil
+	return stackRecord.Stack, nil
 }
 
 func (p *Service) DeleteStack(identifier client.StackIdentifier) error {
@@ -62,7 +62,7 @@ func (p *Service) GetStackUpdate(identifier client.StackIdentifier, version int)
 	}
 
 	versionRecord := &schema.StackVersionRecord{
-		ID:      schema.NewStackID(identifier),
+		StackID: schema.NewStackID(identifier),
 		Version: version,
 	}
 
@@ -117,10 +117,10 @@ func (p *Service) GetStackDeployment(identifier client.StackIdentifier) (*apityp
 	}
 
 	checkpointRecord := &schema.CheckpointRecord{
-		ID: schema.NewUpdateID(client.UpdateIdentifier{UpdateID: stackRecord.Stack.ActiveUpdate}),
+		UpdateID: schema.NewUpdateID(client.UpdateIdentifier{UpdateID: stackRecord.Stack.ActiveUpdate}),
 	}
 
-	if err := p.store.Read(&checkpointRecord); err != nil {
+	if err := p.store.Read(checkpointRecord); err != nil {
 		return nil, err
 	}
 
@@ -135,14 +135,14 @@ func (p *Service) GetStackDeployment(identifier client.StackIdentifier) (*apityp
 }
 
 func readStackRecord(s *store.Postgres, identifier client.StackIdentifier) (*schema.StackRecord, error) {
-	stackRecord := schema.StackRecord{
+	stackRecord := &schema.StackRecord{
 		ID: schema.NewStackID(identifier),
 	}
 
-	err := s.Read(&stackRecord)
+	err := s.Read(stackRecord)
 	if err != nil {
 		return nil, err
 	}
 
-	return &stackRecord, nil
+	return stackRecord, nil
 }

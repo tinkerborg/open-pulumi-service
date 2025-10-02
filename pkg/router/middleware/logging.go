@@ -32,6 +32,6 @@ func Logging(next http.Handler) http.Handler {
 		// or implicitly). We can now access it from our recorder.
 		duration := time.Since(start)
 		log.Printf("method=%s path=%s status=%d duration=%s",
-			r.Method, r.URL.Path, rec.status, duration)
+			r.Method, r.RequestURI, rec.status, duration)
 	})
 }

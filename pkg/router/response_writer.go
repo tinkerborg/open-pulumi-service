@@ -30,7 +30,6 @@ func (w ResponseWriter) WithStatus(statusCode int) ResponseWriter {
 	return w
 }
 
-// HANDLE NIL ERRORS
 func (w ResponseWriter) Error(err error) error {
 	if w.statusCode == 0 {
 		if errors.Is(err, store.ErrNotFound) {
@@ -40,11 +39,7 @@ func (w ResponseWriter) Error(err error) error {
 		}
 	}
 
-	if err == nil {
-		err = errors.New(http.StatusText(w.statusCode))
-	}
-
-	// TODO - hide 500 error causes?
+	// TODO - hide 500 error causes
 	return json.NewEncoder(w).Encode(HTTPError{Code: w.statusCode, Message: err.Error()})
 }
 

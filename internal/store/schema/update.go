@@ -13,6 +13,7 @@ import (
 // TODO - requestedBy should be a join
 type UpdateRecord struct {
 	ID          UpdateID `gorm:"primaryKey;type:text"`
+	StackID     StackID
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	Kind        apitype.UpdateKind `gorm:"type:jsonb;serializer:json"`
@@ -25,15 +26,17 @@ type UpdateRecord struct {
 	RequestedBy model.ServiceUserInfo          `gorm:"type:jsonb;serializer:json"`
 	StartTime   time.Time
 	EndTime     time.Time
+	Checkpoint  *CheckpointRecord   `gorm:"foreignKey:UpdateID;constraint:OnDelete:CASCADE"`
+	Events      []EngineEventRecord `gorm:"foreignKey:UpdateID;constraint:OnDelete:CASCADE"`
 }
 
 type CheckpointRecord struct {
-	ID         UpdateID                     `gorm:"primaryKey;type:text"`
+	UpdateID   UpdateID                     `gorm:"primaryKey;type:text"`
 	Checkpoint *apitype.VersionedCheckpoint `gorm:"type:jsonb;serializer:json"`
 }
 
 type EngineEventRecord struct {
-	ID          UpdateID             `gorm:"primaryKey;type:text"`
+	UpdateID    UpdateID             `gorm:"primaryKey;type:text"`
 	Sequence    int                  `gorm:"primaryKey"`
 	EngineEvent *apitype.EngineEvent `gorm:"type:jsonb;serializer:json"`
 }

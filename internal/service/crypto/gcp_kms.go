@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
+	"fmt"
 	"strings"
 
 	wrapping "github.com/hashicorp/go-kms-wrapping"
@@ -17,19 +17,19 @@ type GoogleKmsCryptoService struct {
 
 var _ Service = GoogleKmsCryptoService{}
 
-func NewGoogleKmsCryptoService(keyID string) *GoogleKmsCryptoService {
+func NewGoogleKmsCryptoService(keyID string) (*GoogleKmsCryptoService, error) {
 	wrapper := gcpckms.NewWrapper(&wrapping.WrapperOptions{})
 
 	config, err := parseKeyID(keyID)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	if _, err := wrapper.SetConfig(config); err != nil {
-		log.Fatalf("can't configure GCP KMS: %s", err)
+		return nil, fmt.Errorf("can't configure GCP KMS: %s", err)
 	}
 
-	return &GoogleKmsCryptoService{wrapper}
+	return &GoogleKmsCryptoService{wrapper}, nil
 }
 
 // Encrypt implements CryptoService.

@@ -15,11 +15,13 @@ type StackRecord struct {
 	ID        StackID `gorm:"primaryKey,type:text"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	Stack     apitype.Stack `gorm:"type:jsonb;serializer:json"`
+	Stack     *apitype.Stack       `gorm:"type:jsonb;serializer:json"`
+	Updates   []UpdateRecord       `gorm:"foreignKey:StackID;constraint:OnDelete:CASCADE"`
+	Versions  []StackVersionRecord `gorm:"foreignKey:StackID;constraint:OnDelete:CASCADE"`
 }
 
 type StackVersionRecord struct {
-	ID       StackID  `gorm:"primaryKey,type:text"`
+	StackID  StackID  `gorm:"primaryKey,type:text"`
 	Version  int      `gorm:"primaryKey"`
 	UpdateID UpdateID `gorm:"type:text"`
 }
@@ -33,7 +35,9 @@ func NewStackID(identifier client.StackIdentifier) StackID {
 }
 
 func (s StackID) Value() (driver.Value, error) {
-	return s.StackIdentifier.String(), nil
+	imoo := s.StackIdentifier.String()
+	return imoo, nil
+	// return s.StackIdentifier.String(), nil
 }
 
 func (s *StackID) Scan(value interface{}) error {

@@ -8,15 +8,16 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 	"github.com/tinkerborg/open-pulumi-service/internal/handler/api/stacks/stack"
+	"github.com/tinkerborg/open-pulumi-service/internal/service/auth"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/crypto"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/state"
 	"github.com/tinkerborg/open-pulumi-service/internal/store"
 	"github.com/tinkerborg/open-pulumi-service/pkg/router"
 )
 
-func Setup(p *state.Service, c crypto.Service) router.Setup {
+func Setup(a *auth.Service, p *state.Service, c crypto.Service) router.Setup {
 	return func(r *router.Router) {
-		r.Mount("/", stack.Setup(p, c))
+		r.Mount("/", stack.Setup(a, p, c))
 
 		r.POST("/{owner}/{project}/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 			owner := r.PathValue("owner")
