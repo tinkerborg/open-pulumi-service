@@ -25,6 +25,16 @@ func Setup(a *auth.Service, p *state.Service) router.Setup {
 			return w.JSON(user)
 		})
 
+		r.GET("/organizations/default/{$}", func(w *router.ResponseWriter, r *http.Request) error {
+			w.JSON(&apitype.GetDefaultOrganizationResponse{
+				GitHubLogin: "tnkerborg",
+				Messages: []apitype.Message{
+					{Message: "Hello world"},
+				},
+			})
+			return nil
+		})
+
 		r.GET("/stacks/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 			stacks, err := p.ListUserStacks()
 			if err != nil {

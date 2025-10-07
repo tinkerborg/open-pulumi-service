@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -17,7 +16,11 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := strings.Split(r.Header.Get("Authorization"), " ")
 
-		// tokenType := header[0]
+		if len(header) < 2 {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
 		token := header[1]
 
 		if token == "" {
@@ -62,7 +65,6 @@ func (s *Service) WithTokenType(tokenType string, checkClaims CheckClaims) route
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handler := &tokenTypeHandler{tokenType, checkClaims}
 			ctx := context.WithValue(r.Context(), tokenTypeKey{}, handler)
-			fmt.Printf("SET TOKEN TYPE %s\n", tokenType)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

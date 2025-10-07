@@ -46,3 +46,9 @@ func ConvertUpdateStatus(status apitype.UpdateStatus) apitype.UpdateResult {
 
 	return apitype.UpdateResult("")
 }
+
+type ListPreviewsResponse struct {
+	Updates      []*StackUpdate `json:"updates"`
+	ItemsPerPage int            `json:"itemsPerPage"`
+	Total        int            `json:"total"`
+}

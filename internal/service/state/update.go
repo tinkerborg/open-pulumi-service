@@ -58,6 +58,7 @@ func (p *Service) CreateUpdate(
 		Options:   options,
 		Config:    config,
 		Metadata:  metadata,
+		DryRun:    options.DryRun,
 		Results: apitype.UpdateResults{
 			Status: apitype.StatusNotStarted,
 			Events: []apitype.UpdateEvent{},
@@ -256,6 +257,45 @@ func (p *Service) CreateImport(identifier client.UpdateIdentifier, deployment *a
 	return *updateID, nil
 }
 
+func (p *Service) ListPreviews(identifier client.StackIdentifier, version string) ([]*model.StackUpdate, error) {
+	// version :=
+	update, err := p.GetStackUpdate(identifier, version)
+	if err != nil {
+		return nil, err
+	}
+
+	stackRecord, err := readStackRecord(p.store, identifier)
+	if err != nil {
+		return nil, err
+	}
+
+	condition := &schema.UpdateRecord{
+		StackID: schema.NewStackID(identifier),
+		Kind:    "preview",
+		Version: update.Version + 1,
+		DryRun:  true,
+	}
+
+	updateRecords := &[]*schema.UpdateRecord{}
+	if err := p.store.List(updateRecords, condition); err != nil {
+		return nil, err
+	}
+
+	updates := []*model.StackUpdate{}
+	for _, updateRecord := range *updateRecords {
+		switch updateRecord.Kind {
+		case "destroy":
+			updateRecord.Kind = "Pdestroy"
+		default:
+			updateRecord.Kind = "Pupdate"
+		}
+		updates = append(updates, createStackUpdate(stackRecord, updateRecord))
+
+	}
+	return updates, nil
+
+}
+
 func readUpdateRecord(s *store.Postgres, identifier client.UpdateIdentifier) (*schema.UpdateRecord, error) {
 	updateRecord := schema.UpdateRecord{
 		ID: schema.NewUpdateID(identifier),
@@ -267,4 +307,25 @@ func readUpdateRecord(s *store.Postgres, identifier client.UpdateIdentifier) (*s
 	}
 
 	return &updateRecord, nil
+}
+
+func createStackUpdate(stackRecord *schema.StackRecord, updateRecord *schema.UpdateRecord) *model.StackUpdate {
+	return &model.StackUpdate{
+		Info: apitype.UpdateInfo{
+			Kind:        updateRecord.Kind,
+			Message:     "",
+			Environment: updateRecord.Metadata.Environment,
+			Config:      updateRecord.Config,
+			StartTime:   updateRecord.StartTime.Unix(),
+			EndTime:     updateRecord.EndTime.Unix(),
+			Result:      model.ConvertUpdateStatus(updateRecord.Results.Status),
+			Version:     updateRecord.Version,
+		},
+		RequestedBy: updateRecord.RequestedBy,
+		GetDeploymentUpdatesUpdateInfo: apitype.GetDeploymentUpdatesUpdateInfo{
+			UpdateID:      updateRecord.ID.UpdateID,
+			Version:       updateRecord.Version,
+			LatestVersion: stackRecord.Stack.Version,
+		},
+	}
 }

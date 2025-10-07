@@ -115,6 +115,19 @@ func Setup(a *auth.Service, p *state.Service, prefix *middleware.PathParser[clie
 				})
 			}, updateToken)
 
+			r.GET("/events/{$}", func(w *router.ResponseWriter, r *http.Request) error {
+				identifier := updateIdentifier.Value(r)
+
+				events, err := p.ListEngineEvents(identifier)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				return w.JSON(&apitype.GetUpdateEventsResponse{
+					Events: events,
+				})
+			})
+
 			r.POST("/events/batch/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 				identifier := updateIdentifier.Value(r)
 

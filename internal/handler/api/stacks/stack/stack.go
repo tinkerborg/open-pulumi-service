@@ -3,10 +3,8 @@ package stack
 import (
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate/client"
@@ -21,17 +19,10 @@ import (
 	"github.com/tinkerborg/open-pulumi-service/pkg/router/middleware"
 )
 
-func moo(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Printf("MOO MW\n")
-		next.ServeHTTP(w, r)
-	})
-}
-
-func Setup(a *auth.Service, p *state.Service, c crypto.Service) router.Setup {
+func Setup(a *auth.Service, s *state.Service, c crypto.Service) router.Setup {
 	return func(r *router.Router) {
 		r.WithPrefix("/{owner}/{project}/{stack}", StackIdentifier.Middleware).Do(func(r *router.Router) {
-			r.Mount("/", update.Setup(a, p, StackIdentifier))
+			r.Mount("/", update.Setup(a, s, StackIdentifier))
 
 			r.GET("/moo/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 				w.Write([]byte("moolaut"))
@@ -41,7 +32,7 @@ func Setup(a *auth.Service, p *state.Service, c crypto.Service) router.Setup {
 			r.GET("/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 				identifier := StackIdentifier.Value(r)
 
-				stack, err := p.GetStack(identifier)
+				stack, err := s.GetStack(identifier)
 				if err != nil {
 					return w.Error(err)
 				}
@@ -52,13 +43,42 @@ func Setup(a *auth.Service, p *state.Service, c crypto.Service) router.Setup {
 			r.DELETE("/", func(w *router.ResponseWriter, r *http.Request) error {
 				// TODO - delete resources associated with stack
 				identifier := StackIdentifier.Value(r)
-				return w.Error(p.DeleteStack(identifier))
+				if err := s.DeleteStack(identifier); err != nil {
+					return w.Error(err)
+				}
+				w.Write([]byte{})
+				return nil
+			})
+
+			r.GET("/resources/{version}/{$}", func(w *router.ResponseWriter, r *http.Request) error {
+				identifier := StackIdentifier.Value(r)
+				version := r.PathValue("version")
+
+				stack, err := s.GetStack(identifier)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				versionNumber, err := s.ParseStackVersion(stack, version)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				resources, err := s.ListStackResources(identifier, version)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				return w.JSON(&model.ListStackResourcesResponse{
+					Resources: resources,
+					Version:   versionNumber,
+				})
 			})
 
 			r.GET("/export/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 				identifier := StackIdentifier.Value(r)
 
-				deployment, err := p.GetStackDeployment(identifier)
+				deployment, err := s.GetStackDeployment(identifier)
 				if err != nil {
 					return w.Error(err)
 				}
@@ -146,7 +166,7 @@ func Setup(a *auth.Service, p *state.Service, c crypto.Service) router.Setup {
 					return w.WithStatus(http.StatusBadRequest).Errorf("invalid update: %s", err)
 				}
 
-				updateID, err := p.CreateImport(identifier, request)
+				updateID, err := s.CreateImport(identifier, request)
 				if err != nil {
 					return w.Errorf("import failed: %s", err)
 				}
@@ -178,12 +198,12 @@ func Setup(a *auth.Service, p *state.Service, c crypto.Service) router.Setup {
 					return w.Error(err)
 				}
 
-				user, err := p.GetUser(claim.ID)
+				user, err := s.GetUser(claim.ID)
 				if err != nil {
 					return w.Error(err)
 				}
 
-				updateID, err := p.CreateUpdate(identifier, updateProgram, &request.Options, request.Config, &request.Metadata, user)
+				updateID, err := s.CreateUpdate(identifier, updateProgram, &request.Options, request.Config, &request.Metadata, user)
 				if err != nil {
 					return w.Errorf("failed to create update: %s", err)
 				}
@@ -195,19 +215,32 @@ func Setup(a *auth.Service, p *state.Service, c crypto.Service) router.Setup {
 			})
 
 			r.GET("/updates/{version}/{$}", func(w *router.ResponseWriter, r *http.Request) error {
-				version, err := strconv.Atoi(r.PathValue("version"))
-				if err != nil {
-					return w.WithStatus(http.StatusBadRequest).Error(err)
-				}
-
 				identifier := StackIdentifier.Value(r)
 
-				update, err := p.GetStackUpdate(identifier, version)
+				version := r.PathValue("version")
+
+				update, err := s.GetStackUpdate(identifier, version)
 				if err != nil {
 					return w.Error(err)
 				}
 
 				return w.JSON(update)
+			})
+
+			r.GET("/updates/{version}/previews/{$}", func(w *router.ResponseWriter, r *http.Request) error {
+				identifier := StackIdentifier.Value(r)
+				version := r.PathValue("version")
+
+				previews, err := s.ListPreviews(identifier, version)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				return w.JSON(&model.ListPreviewsResponse{
+					Updates:      previews,
+					ItemsPerPage: 0,
+					Total:        len(previews),
+				})
 			})
 		})
 	}

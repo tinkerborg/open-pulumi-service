@@ -54,9 +54,10 @@ func (p *Postgres) Create(record interface{}) error {
 }
 
 func (p *Postgres) Read(record interface{}) error {
-	if err := p.validatePrimaryKey(record); err != nil {
-		return err
-	}
+	// TODO - breaks when creating a new stack and stack version becomes 0
+	// if err := p.validatePrimaryKey(record); err != nil {
+	// return err
+	// }
 
 	err := p.db.First(ensurePtr(record)).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {

@@ -12,22 +12,23 @@ import (
 
 // TODO - requestedBy should be a join
 type UpdateRecord struct {
-	ID          UpdateID `gorm:"primaryKey;type:text"`
-	StackID     StackID
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	Kind        apitype.UpdateKind `gorm:"type:jsonb;serializer:json"`
-	Version     int
+	ID          UpdateID                       `gorm:"primaryKey;type:text"`
+	StackID     StackID                        `gorm:"index;type:text"`
+	Kind        apitype.UpdateKind             `gorm:"type:jsonb;serializer:json"`
+	Version     int                            `gorm:"index"`
 	Update      *apitype.UpdateProgram         `gorm:"type:jsonb;serializer:json"`
 	Options     *apitype.UpdateOptions         `gorm:"type:jsonb;serializer:json"`
 	Config      map[string]apitype.ConfigValue `gorm:"type:jsonb;serializer:json"`
 	Metadata    *apitype.UpdateMetadata        `gorm:"type:jsonb;serializer:json"`
 	Results     apitype.UpdateResults          `gorm:"type:jsonb;serializer:json"`
 	RequestedBy model.ServiceUserInfo          `gorm:"type:jsonb;serializer:json"`
+	Checkpoint  *CheckpointRecord              `gorm:"foreignKey:UpdateID;constraint:OnDelete:CASCADE"`
+	Events      []EngineEventRecord            `gorm:"foreignKey:UpdateID;constraint:OnDelete:CASCADE"`
+	DryRun      bool
 	StartTime   time.Time
 	EndTime     time.Time
-	Checkpoint  *CheckpointRecord   `gorm:"foreignKey:UpdateID;constraint:OnDelete:CASCADE"`
-	Events      []EngineEventRecord `gorm:"foreignKey:UpdateID;constraint:OnDelete:CASCADE"`
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 type CheckpointRecord struct {

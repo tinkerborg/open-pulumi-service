@@ -35,21 +35,25 @@ func main() {
 
 	config.OAuthConfig.AppBaseURL = config.AppBaseURL
 
+	log.Print("starting database service")
 	s, err := store.NewPostgres(config.DatabaseURL)
 	if err != nil {
 		log.Fatalf("error creating store: %s", err)
 	}
 
+	log.Print("starting auth service")
 	authService, err := auth.New(s)
 	if err != nil {
 		log.Fatalf("error creating auth service: %s", err)
 	}
 
+	log.Print("starting crypto service")
 	cryptoService, err := crypto.NewGoogleKmsCryptoService(config.GoogleKeyID)
 	if err != nil {
 		log.Fatalf("error creating crypto service: %s", err)
 	}
 
+	log.Print("starting state service")
 	stateService := state.New(s)
 
 	r := router.NewRouter()
@@ -60,4 +64,5 @@ func main() {
 	r.Mount("/api", api.Setup(authService, stateService, cryptoService))
 
 	log.Fatal(http.ListenAndServe(config.ListenAddress+":"+config.ListenPort, r))
+	log.Print("open-pulumi-service is ready")
 }

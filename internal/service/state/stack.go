@@ -2,6 +2,8 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +14,8 @@ import (
 	"github.com/tinkerborg/open-pulumi-service/internal/store"
 	"github.com/tinkerborg/open-pulumi-service/internal/store/schema"
 )
+
+// TODO - clean up handling of version strings (parse to int / latest)
 
 func (p *Service) CreateStack(stack *apitype.Stack) error {
 	stack.ID = uuid.New().String()
@@ -55,15 +59,20 @@ func (p *Service) DeleteStack(identifier client.StackIdentifier) error {
 }
 
 // TODO support latest
-func (p *Service) GetStackUpdate(identifier client.StackIdentifier, version int) (*model.StackUpdate, error) {
+func (p *Service) GetStackUpdate(identifier client.StackIdentifier, version string) (*model.StackUpdate, error) {
 	stackRecord, err := readStackRecord(p.store, identifier)
+	if err != nil {
+		return nil, err
+	}
+
+	versionNumber, err := p.ParseStackVersion(stackRecord.Stack, version)
 	if err != nil {
 		return nil, err
 	}
 
 	versionRecord := &schema.StackVersionRecord{
 		StackID: schema.NewStackID(identifier),
-		Version: version,
+		Version: versionNumber,
 	}
 
 	if err := p.store.Read(versionRecord); err != nil {
@@ -75,24 +84,7 @@ func (p *Service) GetStackUpdate(identifier client.StackIdentifier, version int)
 		return nil, err
 	}
 
-	return &model.StackUpdate{
-		Info: apitype.UpdateInfo{
-			Kind:        updateRecord.Kind,
-			Message:     "",
-			Environment: updateRecord.Metadata.Environment,
-			Config:      updateRecord.Config,
-			StartTime:   updateRecord.StartTime.Unix(),
-			EndTime:     updateRecord.EndTime.Unix(),
-			Result:      model.ConvertUpdateStatus(updateRecord.Results.Status),
-			Version:     updateRecord.Version,
-		},
-		RequestedBy: updateRecord.RequestedBy,
-		GetDeploymentUpdatesUpdateInfo: apitype.GetDeploymentUpdatesUpdateInfo{
-			UpdateID:      updateRecord.ID.UpdateID,
-			Version:       updateRecord.Version,
-			LatestVersion: stackRecord.Stack.Version,
-		},
-	}, nil
+	return createStackUpdate(stackRecord, updateRecord), nil
 }
 
 func (p *Service) GetStackDeployment(identifier client.StackIdentifier) (*apitype.UntypedDeployment, error) {
@@ -132,6 +124,53 @@ func (p *Service) GetStackDeployment(identifier client.StackIdentifier) (*apityp
 		Deployment: checkpoint.Checkpoint,
 	}, nil
 
+}
+
+func (p *Service) ListStackResources(stackIdentifier client.StackIdentifier, version string) ([]apitype.ResourceV3, error) {
+	update, err := p.GetStackUpdate(stackIdentifier, version)
+	if err != nil {
+		return nil, err
+	}
+
+	updateIdentifier := client.UpdateIdentifier{
+		StackIdentifier: stackIdentifier,
+		UpdateID:        update.UpdateID,
+	}
+
+	checkpointRecord := &schema.CheckpointRecord{
+		UpdateID: schema.NewUpdateID(updateIdentifier),
+	}
+
+	if err := p.store.Read(checkpointRecord); err != nil {
+		return nil, err
+	}
+
+	// TODO support versioning
+	deployment := &apitype.DeploymentV3{}
+	if err := json.Unmarshal(checkpointRecord.Checkpoint.Checkpoint, &deployment); err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("u %+v\n", checkpointRecord)
+
+	return deployment.Resources, nil
+}
+
+func (p *Service) ParseStackVersion(stack *apitype.Stack, version string) (int, error) {
+	var versionNumber int
+	switch version {
+	case "latest":
+		versionNumber = stack.Version
+
+	default:
+		v, err := strconv.Atoi(version)
+		if err != nil {
+			return 0, err
+		}
+		versionNumber = v
+	}
+
+	return versionNumber, nil
 }
 
 func readStackRecord(s *store.Postgres, identifier client.StackIdentifier) (*schema.StackRecord, error) {
