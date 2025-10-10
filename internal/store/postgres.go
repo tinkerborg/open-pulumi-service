@@ -41,7 +41,10 @@ func NewPostgres(connectionString string) (*Postgres, error) {
 
 	primaryKeys := map[interface{}][]string{}
 
-	return &Postgres{db, primaryKeys}, nil
+	return &Postgres{
+		db:          db,
+		primaryKeys: primaryKeys,
+	}, nil
 }
 
 func (p *Postgres) Create(record interface{}) error {
@@ -55,9 +58,9 @@ func (p *Postgres) Create(record interface{}) error {
 
 func (p *Postgres) Read(record interface{}) error {
 	// TODO - breaks when creating a new stack and stack version becomes 0
-	// if err := p.validatePrimaryKey(record); err != nil {
-	// return err
-	// }
+	if err := p.validatePrimaryKey(record); err != nil {
+		return err
+	}
 
 	err := p.db.First(ensurePtr(record)).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -95,11 +98,11 @@ func (p *Postgres) Delete(record interface{}) error {
 }
 
 func (p *Postgres) Transaction(fc func(p *Postgres) error) error {
-	p.db.Transaction(func(tx *gorm.DB) error {
-		db := &Postgres{db: tx}
+	err := p.db.Transaction(func(tx *gorm.DB) error {
+		db := &Postgres{db: tx, primaryKeys: p.primaryKeys}
 		return fc(db)
 	})
-	return nil
+	return err
 }
 
 func ensurePtr(value interface{}) interface{} {

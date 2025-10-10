@@ -3,12 +3,10 @@ package state
 import (
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate/client"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/tinkerborg/open-pulumi-service/internal/model"
 	"github.com/tinkerborg/open-pulumi-service/internal/store"
-	"github.com/tinkerborg/open-pulumi-service/internal/store/schema"
 )
 
 // TODO constrain update kind
@@ -43,13 +41,8 @@ func (p *Service) CreateUpdate(
 		metadata = &apitype.UpdateMetadata{}
 	}
 
-	updateID := uuid.New().String()
-
-	identifier.UpdateID = updateID
-
-	updateRecord := schema.UpdateRecord{
-		ID:        schema.NewUpdateID(identifier),
-		StackID:   schema.NewStackID(identifier.StackIdentifier),
+	updateRecord := model.UpdateRecord{
+		StackID:   stackRecord.ID,
 		Kind:      identifier.UpdateKind,
 		Update:    update,
 		Version:   stackRecord.Stack.Version + 1,
@@ -77,11 +70,11 @@ func (p *Service) CreateUpdate(
 		return nil, err
 	}
 
-	return &updateID, nil
+	return &updateRecord.ID, nil
 }
 
 func (p *Service) GetUpdateResults(identifier client.UpdateIdentifier) (*apitype.UpdateResults, error) {
-	updateRecord, err := readUpdateRecord(p.store, identifier)
+	updateRecord, err := readUpdateRecord(p.store, identifier.UpdateID)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +89,7 @@ func (p *Service) StartUpdate(identifier client.UpdateIdentifier) (int, error) {
 	var version int
 
 	if err := p.store.Transaction(func(s *store.Postgres) error {
-		updateRecord, err := readUpdateRecord(s, identifier)
+		updateRecord, err := readUpdateRecord(s, identifier.UpdateID)
 		if err != nil {
 			return err
 		}
@@ -123,7 +116,7 @@ func (p *Service) CompleteUpdate(identifier client.UpdateIdentifier, status apit
 
 	if err := p.store.Transaction(func(s *store.Postgres) error {
 		// TODO - transaction
-		updateRecord, err := readUpdateRecord(s, identifier)
+		updateRecord, err := readUpdateRecord(s, identifier.UpdateID)
 		if err != nil {
 			return err
 		}
@@ -147,8 +140,8 @@ func (p *Service) CompleteUpdate(identifier client.UpdateIdentifier, status apit
 			stackRecord.Stack.Version = updateRecord.Version
 			stackRecord.Stack.ActiveUpdate = identifier.UpdateID
 
-			versionRecord := &schema.StackVersionRecord{
-				StackID:  schema.NewStackID(identifier.StackIdentifier),
+			versionRecord := &model.StackVersionRecord{
+				StackID:  stackRecord.ID,
 				Version:  updateRecord.Version,
 				UpdateID: updateRecord.ID,
 			}
@@ -173,8 +166,8 @@ func (p *Service) CompleteUpdate(identifier client.UpdateIdentifier, status apit
 }
 
 func (p *Service) CheckpointUpdate(identifier client.UpdateIdentifier, checkpoint *apitype.VersionedCheckpoint) error {
-	checkpointRecord := schema.CheckpointRecord{
-		UpdateID:   schema.NewUpdateID(identifier),
+	checkpointRecord := model.CheckpointRecord{
+		UpdateID:   identifier.UpdateID,
 		Checkpoint: checkpoint,
 	}
 
@@ -187,12 +180,10 @@ func (p *Service) CheckpointUpdate(identifier client.UpdateIdentifier, checkpoin
 }
 
 func (p *Service) AddEngineEvents(identifier client.UpdateIdentifier, events []apitype.EngineEvent) error {
-	updateID := schema.NewUpdateID(identifier)
-
 	if err := p.store.Transaction(func(s *store.Postgres) error {
 		for _, event := range events {
-			eventRecord := schema.EngineEventRecord{
-				UpdateID:    updateID,
+			eventRecord := model.EngineEventRecord{
+				UpdateID:    identifier.UpdateID,
 				Sequence:    event.Sequence,
 				EngineEvent: &event,
 			}
@@ -211,9 +202,9 @@ func (p *Service) AddEngineEvents(identifier client.UpdateIdentifier, events []a
 }
 
 func (p *Service) ListEngineEvents(identifier client.UpdateIdentifier) ([]apitype.EngineEvent, error) {
-	eventRecords := []schema.EngineEventRecord{}
+	eventRecords := []model.EngineEventRecord{}
 
-	if err := p.store.List(&eventRecords, schema.NewUpdateID(identifier)); err != nil {
+	if err := p.store.List(&eventRecords, model.EngineEventRecord{UpdateID: identifier.UpdateID}); err != nil {
 		return nil, err
 	}
 
@@ -269,14 +260,14 @@ func (p *Service) ListPreviews(identifier client.StackIdentifier, version string
 		return nil, err
 	}
 
-	condition := &schema.UpdateRecord{
-		StackID: schema.NewStackID(identifier),
+	condition := &model.UpdateRecord{
+		StackID: stackRecord.ID,
 		Kind:    "preview",
 		Version: update.Version + 1,
 		DryRun:  true,
 	}
 
-	updateRecords := &[]*schema.UpdateRecord{}
+	updateRecords := &[]*model.UpdateRecord{}
 	if err := p.store.List(updateRecords, condition); err != nil {
 		return nil, err
 	}
@@ -296,9 +287,9 @@ func (p *Service) ListPreviews(identifier client.StackIdentifier, version string
 
 }
 
-func readUpdateRecord(s *store.Postgres, identifier client.UpdateIdentifier) (*schema.UpdateRecord, error) {
-	updateRecord := schema.UpdateRecord{
-		ID: schema.NewUpdateID(identifier),
+func readUpdateRecord(s *store.Postgres, id string) (*model.UpdateRecord, error) {
+	updateRecord := model.UpdateRecord{
+		ID: id,
 	}
 
 	err := s.Read(&updateRecord)
@@ -309,7 +300,7 @@ func readUpdateRecord(s *store.Postgres, identifier client.UpdateIdentifier) (*s
 	return &updateRecord, nil
 }
 
-func createStackUpdate(stackRecord *schema.StackRecord, updateRecord *schema.UpdateRecord) *model.StackUpdate {
+func createStackUpdate(stackRecord *model.StackRecord, updateRecord *model.UpdateRecord) *model.StackUpdate {
 	return &model.StackUpdate{
 		Info: apitype.UpdateInfo{
 			Kind:        updateRecord.Kind,
@@ -323,7 +314,7 @@ func createStackUpdate(stackRecord *schema.StackRecord, updateRecord *schema.Upd
 		},
 		RequestedBy: updateRecord.RequestedBy,
 		GetDeploymentUpdatesUpdateInfo: apitype.GetDeploymentUpdatesUpdateInfo{
-			UpdateID:      updateRecord.ID.UpdateID,
+			UpdateID:      updateRecord.ID,
 			Version:       updateRecord.Version,
 			LatestVersion: stackRecord.Stack.Version,
 		},

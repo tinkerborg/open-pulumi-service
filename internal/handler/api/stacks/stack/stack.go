@@ -69,7 +69,7 @@ func Setup(a *auth.Service, s *state.Service, c crypto.Service) router.Setup {
 					return w.Error(err)
 				}
 
-				return w.JSON(&model.ListStackResourcesResponse{
+				return w.JSON(&ListStackResourcesResponse{
 					Resources: resources,
 					Version:   versionNumber,
 				})
@@ -236,7 +236,7 @@ func Setup(a *auth.Service, s *state.Service, c crypto.Service) router.Setup {
 					return w.Error(err)
 				}
 
-				return w.JSON(&model.ListPreviewsResponse{
+				return w.JSON(&ListPreviewsResponse{
 					Updates:      previews,
 					ItemsPerPage: 0,
 					Total:        len(previews),
@@ -275,4 +275,16 @@ func updateIdentifier(prefix *middleware.PathParser[client.StackIdentifier], r *
 		UpdateKind:      updateKind,
 		UpdateID:        updateID,
 	}, nil
+}
+
+type ListStackResourcesResponse struct {
+	Resources []apitype.ResourceV3 `json:"resources"`
+	Region    string               `json:"region"`
+	Version   int                  `json:"version"`
+}
+
+type ListPreviewsResponse struct {
+	Updates      []*model.StackUpdate `json:"updates"`
+	ItemsPerPage int                  `json:"itemsPerPage"`
+	Total        int                  `json:"total"`
 }

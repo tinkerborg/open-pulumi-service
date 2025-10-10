@@ -3,12 +3,10 @@ package state
 import (
 	"errors"
 
-	"github.com/google/uuid"
-	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate/client"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/tinkerborg/open-pulumi-service/internal/model"
 	"github.com/tinkerborg/open-pulumi-service/internal/store"
-	"github.com/tinkerborg/open-pulumi-service/internal/store/schema"
+	"github.com/tinkerborg/open-pulumi-service/internal/util"
 	"gorm.io/gorm"
 )
 
@@ -53,9 +51,19 @@ func (p *Service) GetUserByName(username string) (*model.ServiceUser, error) {
 	return user, nil
 }
 
-func (p *Service) CreateUser(user *model.ServiceUser) error {
-	user.ID = uuid.New().String()
+func (p *Service) GetUserByEmail(email string) (*model.ServiceUser, error) {
+	user := &model.ServiceUser{
+		Email: email,
+	}
 
+	if err := p.store.Read(user); err != nil {
+		return nil, err
+	}
+
+	return user, nil
+}
+
+func (p *Service) CreateUser(user *model.ServiceUser) error {
 	if err := p.store.Create(&user); err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			return store.ErrExist
@@ -66,11 +74,15 @@ func (p *Service) CreateUser(user *model.ServiceUser) error {
 	return nil
 }
 
-func (p *Service) ListUserStacks() ([]apitype.StackSummary, error) {
-	stackRecords := []schema.StackRecord{}
-
-	err := p.store.List(&stackRecords)
+func (p *Service) ListUserStacks(conditions ...model.StackRecord) ([]apitype.StackSummary, error) {
+	condition, err := util.Merge(model.StackRecord{}, conditions)
 	if err != nil {
+		return nil, err
+	}
+
+	stackRecords := []model.StackRecord{}
+
+	if err := p.store.List(&stackRecords, condition); err != nil {
 		return nil, err
 	}
 
@@ -90,7 +102,7 @@ func (p *Service) ListUserStacks() ([]apitype.StackSummary, error) {
 
 		if record.ActiveUpdate != "" {
 
-			update, err := readUpdateRecord(p.store, client.UpdateIdentifier{UpdateID: record.ActiveUpdate})
+			update, err := readUpdateRecord(p.store, record.ActiveUpdate)
 			if err != nil && !errors.Is(err, store.ErrNotFound) {
 				return nil, err
 			}

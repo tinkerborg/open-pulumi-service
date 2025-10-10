@@ -6,32 +6,26 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/pulumi/pulumi/pkg/v3/backend/httpstate/client"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 	"github.com/tinkerborg/open-pulumi-service/internal/model"
 	"github.com/tinkerborg/open-pulumi-service/internal/store"
-	"github.com/tinkerborg/open-pulumi-service/internal/store/schema"
 )
 
 // TODO - clean up handling of version strings (parse to int / latest)
 
 func (p *Service) CreateStack(stack *apitype.Stack) error {
-	stack.ID = uuid.New().String()
-
 	stackName, err := tokens.ParseStackName(stack.StackName.String())
 	if err != nil {
 		return err
 	}
 
-	record := schema.StackRecord{
-		ID: schema.NewStackID(client.StackIdentifier{
-			Owner:   stack.OrgName,
-			Project: stack.ProjectName,
-			Stack:   stackName,
-		}),
-		Stack: stack,
+	record := model.StackRecord{
+		Owner:   stack.OrgName,
+		Project: stack.ProjectName,
+		Name:    stackName.String(),
+		Stack:   stack,
 	}
 
 	if err := p.store.Create(&record); err != nil {
@@ -51,11 +45,7 @@ func (p *Service) GetStack(identifier client.StackIdentifier) (*apitype.Stack, e
 }
 
 func (p *Service) DeleteStack(identifier client.StackIdentifier) error {
-	stackRecord := &schema.StackRecord{
-		ID: schema.NewStackID(identifier),
-	}
-
-	return p.store.Delete(&stackRecord)
+	return p.store.Delete(StackRecord(identifier))
 }
 
 // TODO support latest
@@ -70,8 +60,8 @@ func (p *Service) GetStackUpdate(identifier client.StackIdentifier, version stri
 		return nil, err
 	}
 
-	versionRecord := &schema.StackVersionRecord{
-		StackID: schema.NewStackID(identifier),
+	versionRecord := &model.StackVersionRecord{
+		StackID: stackRecord.ID,
 		Version: versionNumber,
 	}
 
@@ -79,7 +69,7 @@ func (p *Service) GetStackUpdate(identifier client.StackIdentifier, version stri
 		return nil, err
 	}
 
-	updateRecord, err := readUpdateRecord(p.store, versionRecord.UpdateID.UpdateIdentifier)
+	updateRecord, err := readUpdateRecord(p.store, versionRecord.UpdateID)
 	if err != nil {
 		return nil, err
 	}
@@ -108,8 +98,8 @@ func (p *Service) GetStackDeployment(identifier client.StackIdentifier) (*apityp
 		}, nil
 	}
 
-	checkpointRecord := &schema.CheckpointRecord{
-		UpdateID: schema.NewUpdateID(client.UpdateIdentifier{UpdateID: stackRecord.Stack.ActiveUpdate}),
+	checkpointRecord := &model.CheckpointRecord{
+		UpdateID: stackRecord.Stack.ActiveUpdate,
 	}
 
 	if err := p.store.Read(checkpointRecord); err != nil {
@@ -132,13 +122,8 @@ func (p *Service) ListStackResources(stackIdentifier client.StackIdentifier, ver
 		return nil, err
 	}
 
-	updateIdentifier := client.UpdateIdentifier{
-		StackIdentifier: stackIdentifier,
-		UpdateID:        update.UpdateID,
-	}
-
-	checkpointRecord := &schema.CheckpointRecord{
-		UpdateID: schema.NewUpdateID(updateIdentifier),
+	checkpointRecord := &model.CheckpointRecord{
+		UpdateID: update.UpdateID,
 	}
 
 	if err := p.store.Read(checkpointRecord); err != nil {
@@ -173,10 +158,8 @@ func (p *Service) ParseStackVersion(stack *apitype.Stack, version string) (int, 
 	return versionNumber, nil
 }
 
-func readStackRecord(s *store.Postgres, identifier client.StackIdentifier) (*schema.StackRecord, error) {
-	stackRecord := &schema.StackRecord{
-		ID: schema.NewStackID(identifier),
-	}
+func readStackRecord(s *store.Postgres, identifier client.StackIdentifier) (*model.StackRecord, error) {
+	stackRecord := StackRecord(identifier)
 
 	err := s.Read(stackRecord)
 	if err != nil {
@@ -184,4 +167,12 @@ func readStackRecord(s *store.Postgres, identifier client.StackIdentifier) (*sch
 	}
 
 	return stackRecord, nil
+}
+
+func StackRecord(identifier client.StackIdentifier) *model.StackRecord {
+	return &model.StackRecord{
+		Owner:   identifier.Owner,
+		Project: identifier.Project,
+		Name:    identifier.Stack.String(),
+	}
 }

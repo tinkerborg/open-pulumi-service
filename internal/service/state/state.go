@@ -5,7 +5,6 @@ import (
 
 	"github.com/tinkerborg/open-pulumi-service/internal/model"
 	"github.com/tinkerborg/open-pulumi-service/internal/store"
-	"github.com/tinkerborg/open-pulumi-service/internal/store/schema"
 )
 
 type Service struct {
@@ -14,11 +13,11 @@ type Service struct {
 
 func New(store *store.Postgres) *Service {
 	store.RegisterModels(
-		&schema.StackRecord{},
-		&schema.UpdateRecord{},
-		&schema.CheckpointRecord{},
-		&schema.EngineEventRecord{},
-		&schema.StackVersionRecord{},
+		&model.StackRecord{},
+		&model.UpdateRecord{},
+		&model.CheckpointRecord{},
+		&model.EngineEventRecord{},
+		&model.StackVersionRecord{},
 		&model.ServiceUser{},
 	)
 

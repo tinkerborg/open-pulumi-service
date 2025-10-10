@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
+	"github.com/tinkerborg/open-pulumi-service/internal/model"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/auth"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/state"
 	"github.com/tinkerborg/open-pulumi-service/pkg/router"
@@ -27,7 +28,7 @@ func Setup(a *auth.Service, p *state.Service) router.Setup {
 
 		r.GET("/organizations/default/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 			w.JSON(&apitype.GetDefaultOrganizationResponse{
-				GitHubLogin: "tnkerborg",
+				GitHubLogin: "cimulate-ai",
 				Messages: []apitype.Message{
 					{Message: "Hello world"},
 				},
@@ -36,7 +37,13 @@ func Setup(a *auth.Service, p *state.Service) router.Setup {
 		})
 
 		r.GET("/stacks/{$}", func(w *router.ResponseWriter, r *http.Request) error {
-			stacks, err := p.ListUserStacks()
+			// TODO tag
+			query := r.URL.Query()
+			organization := query.Get("organization")
+			project := query.Get("project")
+
+			// TODO - should use default org
+			stacks, err := p.ListUserStacks(model.StackRecord{Owner: organization, Project: project})
 			if err != nil {
 				return w.Error(err)
 			}

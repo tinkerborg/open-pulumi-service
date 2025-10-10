@@ -5,7 +5,7 @@ package model
 // Copied from https://github.com/pulumi/pulumi-service/blob/master/pkg/apitype/users.go#L20-L37
 // TODO understand what identities and tokeninfo do
 type ServiceUser struct {
-	ID            string            `json:"id" gorm:"primaryKey"`
+	ID            string            `gorm:"type:uuid;default:gen_random_uuid();unique"`
 	GitHubLogin   string            `json:"githubLogin" gorm:"primaryKey"`
 	Name          string            `json:"name"`
 	Email         string            `json:"email" gorm:"index;unique"`
