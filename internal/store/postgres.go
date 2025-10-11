@@ -10,6 +10,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
 
 type Postgres struct {
@@ -33,17 +34,19 @@ func NewPostgres(connectionString string) (*Postgres, error) {
 				Colorful:                  false,
 			},
 		),
+		NamingStrategy: schema.NamingStrategy{
+
+			SingularTable: true,
+		},
 	})
 
 	if err != nil {
 		return nil, err
 	}
 
-	primaryKeys := map[interface{}][]string{}
-
 	return &Postgres{
 		db:          db,
-		primaryKeys: primaryKeys,
+		primaryKeys: map[interface{}][]string{},
 	}, nil
 }
 
@@ -56,13 +59,25 @@ func (p *Postgres) Create(record interface{}) error {
 	return err
 }
 
-func (p *Postgres) Read(record interface{}) error {
-	// TODO - breaks when creating a new stack and stack version becomes 0
+func (p *Postgres) Read(record interface{}, preloads ...interface{}) error {
 	if err := p.validatePrimaryKey(record); err != nil {
 		return err
 	}
 
-	err := p.db.First(ensurePtr(record)).Error
+	db := p.db
+
+	if len(preloads) > 0 {
+		for _, preload := range preloads {
+			field, err := getFieldOfType(record, preload)
+			if err != nil {
+				return err
+			}
+
+			db = db.Preload(field, preload)
+		}
+	}
+
+	err := db.Debug().First(ensurePtr(record), record).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrNotFound
 	}

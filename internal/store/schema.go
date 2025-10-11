@@ -36,7 +36,7 @@ func (p *Postgres) getPrimaryKeys(model interface{}) ([]string, error) {
 	primaryKeys := []string{}
 
 	for _, field := range stmt.Schema.Fields {
-		if field.PrimaryKey {
+		if field.PrimaryKey || field.TagSettings["UNIQUEINDEX"] != "" || field.TagSettings["INDEX"] != "" {
 			primaryKeys = append(primaryKeys, field.Name)
 		}
 	}
@@ -63,4 +63,22 @@ func getValueType(v interface{}) reflect.Value {
 		return t.Elem()
 	}
 	return t
+}
+
+func getFieldOfType(input interface{}, matcher interface{}) (string, error) {
+	if value := reflect.ValueOf(input); value.Kind() == reflect.Ptr {
+		input = value.Elem().Interface()
+	}
+
+	inputType := reflect.TypeOf(input)
+	matchType := reflect.TypeOf(matcher)
+
+	for idx := range inputType.NumField() {
+		field := inputType.Field(idx)
+		if field.Type.Kind() == reflect.Slice && field.Type.Elem() == matchType {
+			return field.Name, nil
+		}
+	}
+
+	return "", fmt.Errorf("field not found")
 }
