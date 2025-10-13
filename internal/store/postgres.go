@@ -77,7 +77,7 @@ func (p *Postgres) Read(record interface{}, preloads ...interface{}) error {
 		}
 	}
 
-	err := db.Debug().First(ensurePtr(record), record).Error
+	err := db.First(ensurePtr(record), record).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrNotFound
 	}

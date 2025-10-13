@@ -11,6 +11,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 	"github.com/tinkerborg/open-pulumi-service/internal/model"
 	"github.com/tinkerborg/open-pulumi-service/internal/store"
+	"github.com/tinkerborg/open-pulumi-service/internal/util"
 )
 
 // TODO - clean up handling of version strings (parse to int / latest)
@@ -60,17 +61,13 @@ func (p *Service) GetStackUpdate(identifier client.StackIdentifier, version stri
 		return nil, err
 	}
 
-	versionRecord := &model.StackVersionRecord{
-		StackID: stackRecord.ID,
+	updateRecord := &model.UpdateRecord{
 		Version: versionNumber,
+		StackID: stackRecord.ID,
+		DryRun:  util.Ptr(false),
 	}
 
-	if err := p.store.Read(versionRecord); err != nil {
-		return nil, err
-	}
-
-	updateRecord, err := readUpdateRecord(p.store, versionRecord.UpdateID)
-	if err != nil {
+	if err := p.store.Read(updateRecord, model.ServiceUserInfo{}); err != nil {
 		return nil, err
 	}
 
@@ -78,6 +75,7 @@ func (p *Service) GetStackUpdate(identifier client.StackIdentifier, version stri
 }
 
 func (p *Service) GetStackDeployment(identifier client.StackIdentifier) (*apitype.UntypedDeployment, error) {
+	// TODO nested preloads
 	stackRecord, err := readStackRecord(p.store, identifier)
 	if err != nil {
 		return nil, err
@@ -158,10 +156,10 @@ func (p *Service) ParseStackVersion(stack *apitype.Stack, version string) (int, 
 	return versionNumber, nil
 }
 
-func readStackRecord(s *store.Postgres, identifier client.StackIdentifier) (*model.StackRecord, error) {
+func readStackRecord(s *store.Postgres, identifier client.StackIdentifier, preloads ...interface{}) (*model.StackRecord, error) {
 	stackRecord := StackRecord(identifier)
 
-	err := s.Read(stackRecord)
+	err := s.Read(stackRecord, preloads...)
 	if err != nil {
 		return nil, err
 	}

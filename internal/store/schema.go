@@ -78,6 +78,9 @@ func getFieldOfType(input interface{}, matcher interface{}) (string, error) {
 		if field.Type.Kind() == reflect.Slice && field.Type.Elem() == matchType {
 			return field.Name, nil
 		}
+		if field.Type.Kind() == reflect.Pointer && field.Type.Elem() == matchType {
+			return field.Name, nil
+		}
 	}
 
 	return "", fmt.Errorf("field not found")

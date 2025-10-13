@@ -214,6 +214,17 @@ func Setup(a *auth.Service, s *state.Service, c crypto.Service) router.Setup {
 				})
 			})
 
+			r.GET("/updates/{$}", func(w *router.ResponseWriter, r *http.Request) error {
+				identifier := StackIdentifier.Value(r)
+
+				updates, err := s.ListUpdates(identifier)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				return w.JSON(&ListUpdatesResponse{Updates: updates})
+			})
+
 			r.GET("/updates/{version}/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 				identifier := StackIdentifier.Value(r)
 
@@ -287,4 +298,8 @@ type ListPreviewsResponse struct {
 	Updates      []*model.StackUpdate `json:"updates"`
 	ItemsPerPage int                  `json:"itemsPerPage"`
 	Total        int                  `json:"total"`
+}
+
+type ListUpdatesResponse struct {
+	Updates []*apitype.UpdateInfo `json:"updates"`
 }
