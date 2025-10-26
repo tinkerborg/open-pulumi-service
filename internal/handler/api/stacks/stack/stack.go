@@ -15,6 +15,7 @@ import (
 	"github.com/tinkerborg/open-pulumi-service/internal/service/auth"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/crypto"
 	"github.com/tinkerborg/open-pulumi-service/internal/service/state"
+	"github.com/tinkerborg/open-pulumi-service/internal/util"
 	"github.com/tinkerborg/open-pulumi-service/pkg/router"
 	"github.com/tinkerborg/open-pulumi-service/pkg/router/middleware"
 )
@@ -23,11 +24,6 @@ func Setup(a *auth.Service, s *state.Service, c crypto.Service) router.Setup {
 	return func(r *router.Router) {
 		r.WithPrefix("/{owner}/{project}/{stack}", StackIdentifier.Middleware).Do(func(r *router.Router) {
 			r.Mount("/", update.Setup(a, s, StackIdentifier))
-
-			r.GET("/moo/{$}", func(w *router.ResponseWriter, r *http.Request) error {
-				w.Write([]byte("moolaut"))
-				return nil
-			})
 
 			r.GET("/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 				identifier := StackIdentifier.Value(r)
@@ -64,7 +60,12 @@ func Setup(a *auth.Service, s *state.Service, c crypto.Service) router.Setup {
 					return w.Error(err)
 				}
 
-				resources, err := s.ListStackResources(identifier, version)
+				update, err := s.GetStackUpdate(identifier, version)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				resources, err := s.ListStackResources(client.UpdateIdentifier{UpdateID: update.UpdateID})
 				if err != nil {
 					return w.Error(err)
 				}
@@ -214,15 +215,85 @@ func Setup(a *auth.Service, s *state.Service, c crypto.Service) router.Setup {
 				})
 			})
 
-			r.GET("/updates/{$}", func(w *router.ResponseWriter, r *http.Request) error {
+			r.GET("/activity/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 				identifier := StackIdentifier.Value(r)
 
-				updates, err := s.ListUpdates(identifier)
+				pageSize, err := util.IntegerParam(r, "pageSize", 10)
 				if err != nil {
 					return w.Error(err)
 				}
 
-				return w.JSON(&ListUpdatesResponse{Updates: updates})
+				page, err := util.IntegerParam(r, "page", 1)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				updates, err := s.ListUpdates(identifier, state.ListUpdateOptions{Descending: true, PageSize: pageSize, Page: page})
+				if err != nil {
+					return w.Error(err)
+				}
+
+				activity := []StackActivity{}
+
+				for _, update := range updates {
+					activity = append(activity, StackActivity{Update: update})
+				}
+
+				count, err := s.GetUpdatesCount(identifier)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				return w.JSON(ListActivityRepsonse{
+					Activity:     activity,
+					ItemsPerPage: pageSize,
+					Total:        count,
+				})
+			})
+
+			r.GET("/updates/{$}", func(w *router.ResponseWriter, r *http.Request) error {
+				identifier := StackIdentifier.Value(r)
+
+				outputType := r.URL.Query().Get("output-type")
+				if outputType != "" && outputType != "cli" && outputType != "service" {
+					return w.Errorf("invalid output type '%s'", outputType)
+				}
+
+				pageSize, err := util.IntegerParam(r, "pageSize", 10)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				page, err := util.IntegerParam(r, "page", 1)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				updates, err := s.ListUpdates(identifier, state.ListUpdateOptions{PageSize: pageSize, Page: page})
+				if err != nil {
+					return w.Error(err)
+				}
+
+				if outputType == "service" {
+					count, err := s.GetUpdatesCount(identifier)
+					if err != nil {
+						return w.Error(err)
+					}
+
+					return w.JSON(&ListPaginatedUpdatesResponse{
+						Updates:      updates,
+						ItemsPerPage: pageSize,
+						Total:        count,
+					})
+				}
+
+				infos := []apitype.UpdateInfo{}
+
+				for _, update := range updates {
+					infos = append(infos, update.Info)
+				}
+
+				return w.JSON(&ListUpdatesResponse{Updates: infos})
 			})
 
 			r.GET("/updates/{version}/{$}", func(w *router.ResponseWriter, r *http.Request) error {
@@ -238,19 +309,36 @@ func Setup(a *auth.Service, s *state.Service, c crypto.Service) router.Setup {
 				return w.JSON(update)
 			})
 
+			// TODO - why no resourceChanges field?
 			r.GET("/updates/{version}/previews/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 				identifier := StackIdentifier.Value(r)
 				version := r.PathValue("version")
 
-				previews, err := s.ListPreviews(identifier, version)
+				pageSize, err := util.IntegerParam(r, "pageSize", 0)
 				if err != nil {
 					return w.Error(err)
 				}
 
-				return w.JSON(&ListPreviewsResponse{
+				page, err := util.IntegerParam(r, "page", 1)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				previews, err := s.ListPreviews(identifier, version, state.ListUpdateOptions{PageSize: pageSize, Page: page})
+				if err != nil {
+					return w.Error(err)
+				}
+
+				count, err := s.GetPreviewsCount(identifier, version)
+				if err != nil {
+					return w.Error(err)
+				}
+
+				// TODO pagination support
+				return w.JSON(&ListPaginatedUpdatesResponse{
 					Updates:      previews,
-					ItemsPerPage: 0,
-					Total:        len(previews),
+					ItemsPerPage: pageSize,
+					Total:        count,
 				})
 			})
 		})
@@ -294,12 +382,22 @@ type ListStackResourcesResponse struct {
 	Version   int                  `json:"version"`
 }
 
-type ListPreviewsResponse struct {
-	Updates      []*model.StackUpdate `json:"updates"`
-	ItemsPerPage int                  `json:"itemsPerPage"`
-	Total        int                  `json:"total"`
+type ListPaginatedUpdatesResponse struct {
+	Updates      []model.StackUpdate `json:"updates"`
+	ItemsPerPage int                 `json:"itemsPerPage"`
+	Total        int64               `json:"total"`
 }
 
 type ListUpdatesResponse struct {
-	Updates []*apitype.UpdateInfo `json:"updates"`
+	Updates []apitype.UpdateInfo `json:"updates"`
+}
+
+type ListActivityRepsonse struct {
+	Activity     []StackActivity `json:"activity"`
+	ItemsPerPage int             `json:"itemsPerPage"`
+	Total        int64           `json:"total"`
+}
+
+type StackActivity struct {
+	Update model.StackUpdate `json:"update"`
 }

@@ -59,34 +59,30 @@ func (p *Postgres) Create(record interface{}) error {
 	return err
 }
 
-func (p *Postgres) Read(record interface{}, preloads ...interface{}) error {
+func (p *Postgres) Read(record interface{}, opts ...DBOption) error {
 	if err := p.validatePrimaryKey(record); err != nil {
 		return err
 	}
 
-	db := p.db
-
-	if len(preloads) > 0 {
-		for _, preload := range preloads {
-			field, err := getFieldOfType(record, preload)
-			if err != nil {
-				return err
-			}
-
-			db = db.Preload(field, preload)
-		}
+	db, err := applyOptions(p.db, record, opts...)
+	if err != nil {
+		return err
 	}
 
-	err := db.First(ensurePtr(record), record).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
+	if err := db.First(ensurePtr(record), record).Error; errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrNotFound
 	}
 
-	return err
+	return nil
 }
 
-func (p *Postgres) List(records interface{}, conditions ...interface{}) error {
-	err := p.db.Find(ensurePtr(records), conditions...).Error
+func (p *Postgres) List(records interface{}, opts ...DBOption) error {
+	db, err := applyOptions(p.db, records, opts...)
+	if err != nil {
+		return err
+	}
+
+	err = db.Find(ensurePtr(records)).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrNotFound
 	}
@@ -110,6 +106,19 @@ func (p *Postgres) Delete(record interface{}) error {
 	}
 
 	return err
+}
+
+func (p *Postgres) Count(records interface{}, opts ...DBOption) (int64, error) {
+	db, err := applyOptions(p.db, records, opts...)
+	if err != nil {
+		return -1, err
+	}
+
+	var count int64
+
+	err = db.Model(ensurePtr(records)).Where(records).Count(&count).Error
+
+	return count, err
 }
 
 func (p *Postgres) Transaction(fc func(p *Postgres) error) error {

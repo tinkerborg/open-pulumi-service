@@ -8,6 +8,8 @@ import (
 	"gorm.io/gorm"
 )
 
+var defaultOptions = map[interface{}][]DBOption{}
+
 func (p *Postgres) RegisterModels(models ...interface{}) error {
 	if err := p.db.AutoMigrate(models...); err != nil {
 		log.Fatalf("schema auto-migration failed: %s", err)
@@ -20,6 +22,7 @@ func (p *Postgres) RegisterModels(models ...interface{}) error {
 		}
 
 		p.primaryKeys[getValueType(model).Type()] = primaryKeys
+		defaultOptions[getValueType(model).Type()] = parseDefaultOptions(p.db, model)
 	}
 
 	return nil
@@ -70,6 +73,10 @@ func getFieldOfType(input interface{}, matcher interface{}) (string, error) {
 		input = value.Elem().Interface()
 	}
 
+	if value := reflect.ValueOf(input); value.Kind() == reflect.Slice {
+		input = reflect.Zero(value.Type().Elem()).Interface()
+	}
+
 	inputType := reflect.TypeOf(input)
 	matchType := reflect.TypeOf(matcher)
 
@@ -79,6 +86,9 @@ func getFieldOfType(input interface{}, matcher interface{}) (string, error) {
 			return field.Name, nil
 		}
 		if field.Type.Kind() == reflect.Pointer && field.Type.Elem() == matchType {
+			return field.Name, nil
+		}
+		if field.Type == matchType {
 			return field.Name, nil
 		}
 	}

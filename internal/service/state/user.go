@@ -82,7 +82,7 @@ func (p *Service) ListUserStacks(conditions ...model.StackRecord) ([]apitype.Sta
 
 	stackRecords := []model.StackRecord{}
 
-	if err := p.store.List(&stackRecords, condition); err != nil {
+	if err := p.store.List(&stackRecords, store.Where(condition)); err != nil {
 		return nil, err
 	}
 
@@ -96,7 +96,6 @@ func (p *Service) ListUserStacks(conditions ...model.StackRecord) ([]apitype.Sta
 			OrgName:     record.OrgName,
 			ProjectName: record.ProjectName,
 			StackName:   record.StackName.Name().String(),
-			// ResourceCount: &resourceCount,
 			// Links:         links,
 		}
 
@@ -109,13 +108,10 @@ func (p *Service) ListUserStacks(conditions ...model.StackRecord) ([]apitype.Sta
 
 			if update != nil {
 				lastUpdate := update.EndTime.Unix()
+				summary.ResourceCount = &update.ResourceCount
 				summary.LastUpdate = &lastUpdate
 			}
 		}
-
-		// TODO
-		resourceCount := 0
-		summary.ResourceCount = &resourceCount
 
 		// TODO
 		summary.Links = apitype.StackLinks{}

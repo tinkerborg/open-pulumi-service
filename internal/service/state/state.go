@@ -13,12 +13,12 @@ type Service struct {
 
 func New(store *store.Postgres) *Service {
 	store.RegisterModels(
-		&model.StackRecord{},
-		&model.UpdateRecord{},
-		&model.CheckpointRecord{},
-		&model.EngineEventRecord{},
-		&model.StackVersionRecord{},
-		&model.ServiceUser{},
+		model.StackRecord{},
+		model.UpdateRecord{},
+		model.CheckpointRecord{},
+		model.EngineEventRecord{},
+		model.StackVersionRecord{},
+		model.ServiceUser{},
 	)
 
 	return &Service{store}

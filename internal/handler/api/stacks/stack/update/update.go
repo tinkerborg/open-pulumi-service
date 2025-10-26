@@ -26,6 +26,7 @@ func Setup(a *auth.Service, p *state.Service, prefix *middleware.PathParser[clie
 
 	return func(r *router.Router) {
 		r.WithPrefix("/{updateKind}/{updateID}", updateIdentifier.Middleware).Do(func(r *router.Router) {
+			// TODO should respond 404 to updates/XX/unknown_type
 			r.GET("/{$}", func(w *router.ResponseWriter, r *http.Request) error {
 				identifier := updateIdentifier.Value(r)
 

@@ -111,6 +111,39 @@ func (p *Service) CompleteUpdate(identifier client.UpdateIdentifier, status apit
 		updateRecord.Results.Status = status
 		updateRecord.EndTime = time.Now()
 
+		activeUpdateIdentifier := identifier
+		if updateRecord.Options.DryRun {
+			stack, err := p.GetStack(identifier.StackIdentifier)
+			if err != nil {
+				return err
+			}
+			activeUpdateIdentifier = client.UpdateIdentifier{
+				UpdateID:        stack.ActiveUpdate,
+				StackIdentifier: identifier.StackIdentifier,
+			}
+		}
+
+		if activeUpdateIdentifier.UpdateID == "" {
+			updateRecord.ResourceCount = 0
+		} else {
+			resources, err := p.ListStackResources(activeUpdateIdentifier)
+			if err != nil {
+				return err
+			}
+			updateRecord.ResourceCount = len(resources)
+		}
+
+		events, err := p.ListEngineEvents(identifier)
+		if err != nil {
+			return err
+		}
+
+		for _, event := range events {
+			if event.SummaryEvent != nil {
+				updateRecord.ResourceChanges = event.SummaryEvent.ResourceChanges
+			}
+		}
+
 		if err := s.Update(updateRecord); err != nil {
 			return err
 		}
@@ -152,17 +185,50 @@ func (p *Service) CompleteUpdate(identifier client.UpdateIdentifier, status apit
 	return &version, nil
 }
 
-func (p *Service) ListUpdates(identifier client.StackIdentifier) ([]*apitype.UpdateInfo, error) {
+func (p *Service) GetUpdatesCount(identifier client.StackIdentifier) (int64, error) {
 	stack := StackRecord(identifier)
+	if err := p.store.Read(stack); err != nil {
+		return -1, err
+	}
 
-	if err := p.store.Read(stack, model.UpdateRecord{DryRun: util.Ptr(false)}); err != nil {
+	return p.store.Count(
+		model.UpdateRecord{StackID: stack.ID, DryRun: util.Ptr(false)},
+	)
+}
+
+func (p *Service) ListUpdates(identifier client.StackIdentifier, opts ...ListUpdateOptions) ([]model.StackUpdate, error) {
+	stack, err := readStackRecord(p.store, identifier)
+	if err != nil {
 		return nil, err
 	}
 
-	var updates []*apitype.UpdateInfo
+	o, err := util.Merge(ListUpdateOptions{}, opts)
+	if err != nil {
+		return nil, err
+	}
 
-	for _, update := range stack.Updates {
-		updates = append(updates, createUpdateInfo(&update))
+	updateRecords := []model.UpdateRecord{}
+
+	p.store.List(&updateRecords,
+		store.Join(model.ServiceUserInfo{}),
+		store.Where(model.UpdateRecord{StackID: stack.ID, DryRun: util.Ptr(false)}),
+		store.Limit(o.PageSize),
+		store.Offset(o.PageSize*(o.Page-1)),
+		store.Descending(o.Descending),
+	)
+
+	var updates []model.StackUpdate
+
+	for _, update := range updateRecords {
+		updates = append(updates, model.StackUpdate{
+			Info:        createUpdateInfo(&update),
+			RequestedBy: update.RequestedBy,
+			GetDeploymentUpdatesUpdateInfo: apitype.GetDeploymentUpdatesUpdateInfo{
+				UpdateID:      update.ID,
+				Version:       update.Version,
+				LatestVersion: stack.Stack.Version,
+			},
+		})
 	}
 
 	return updates, nil
@@ -219,11 +285,10 @@ func (p *Service) AddEngineEvents(identifier client.UpdateIdentifier, events []a
 func (p *Service) ListEngineEvents(identifier client.UpdateIdentifier) ([]apitype.EngineEvent, error) {
 	eventRecords := []model.EngineEventRecord{}
 
-	if err := p.store.List(&eventRecords, model.EngineEventRecord{UpdateID: identifier.UpdateID}); err != nil {
+	if err := p.store.List(&eventRecords, store.Where(model.EngineEventRecord{UpdateID: identifier.UpdateID})); err != nil {
 		return nil, err
 	}
 
-	// TODO - do this on db level
 	events := []apitype.EngineEvent{}
 
 	for _, eventRecord := range eventRecords {
@@ -263,8 +328,34 @@ func (p *Service) CreateImport(identifier client.UpdateIdentifier, deployment *a
 	return *updateID, nil
 }
 
-func (p *Service) ListPreviews(identifier client.StackIdentifier, version string) ([]*model.StackUpdate, error) {
-	update, err := p.GetStackUpdate(identifier, version)
+func (p *Service) GetPreviewsCount(identifier client.StackIdentifier, version string) (int64, error) {
+	stackRecord, err := readStackRecord(p.store, identifier)
+	if err != nil {
+		return -1, err
+	}
+
+	var versionNumber int
+
+	if version == "latest" && stackRecord.Stack.Version == 0 {
+		versionNumber = 1
+	} else {
+		update, err := p.GetStackUpdate(identifier, version)
+		if err != nil {
+			return -1, err
+		}
+
+		versionNumber = update.Version + 1
+	}
+
+	return p.store.Count(&model.UpdateRecord{
+		StackID: stackRecord.ID,
+		Version: versionNumber,
+		DryRun:  util.Ptr(true),
+	})
+}
+
+func (p *Service) ListPreviews(identifier client.StackIdentifier, version string, opts ...ListUpdateOptions) ([]model.StackUpdate, error) {
+	o, err := util.Merge(ListUpdateOptions{}, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -274,19 +365,39 @@ func (p *Service) ListPreviews(identifier client.StackIdentifier, version string
 		return nil, err
 	}
 
+	var versionNumber int
+
+	if version == "latest" && stackRecord.Stack.Version == 0 {
+		versionNumber = 1
+	} else {
+		update, err := p.GetStackUpdate(identifier, version)
+		if err != nil {
+			return nil, err
+		}
+
+		versionNumber = update.Version + 1
+	}
+
 	condition := &model.UpdateRecord{
 		StackID: stackRecord.ID,
-		// Kind:    "preview",
-		Version: update.Version + 1,
+		Version: versionNumber,
 		DryRun:  util.Ptr(true),
 	}
 
-	updateRecords := &[]*model.UpdateRecord{}
-	if err := p.store.List(updateRecords, condition); err != nil {
+	updateRecords := &[]model.UpdateRecord{{}}
+
+	if err := p.store.List(
+		updateRecords,
+		store.Join(model.ServiceUserInfo{}),
+		store.Where(condition),
+		store.Limit(o.PageSize),
+		store.Offset(o.PageSize*(o.Page-1)),
+		store.Descending(o.Descending),
+	); err != nil {
 		return nil, err
 	}
 
-	updates := []*model.StackUpdate{}
+	updates := []model.StackUpdate{}
 	for _, updateRecord := range *updateRecords {
 		switch updateRecord.Kind {
 		case "destroy":
@@ -294,11 +405,10 @@ func (p *Service) ListPreviews(identifier client.StackIdentifier, version string
 		default:
 			updateRecord.Kind = "Pupdate"
 		}
-		updates = append(updates, createStackUpdate(stackRecord, updateRecord))
-
+		updates = append(updates, *createStackUpdate(stackRecord, &updateRecord))
 	}
-	return updates, nil
 
+	return updates, nil
 }
 
 func readUpdateRecord(s *store.Postgres, id string) (*model.UpdateRecord, error) {
@@ -314,22 +424,24 @@ func readUpdateRecord(s *store.Postgres, id string) (*model.UpdateRecord, error)
 	return &updateRecord, nil
 }
 
-func createUpdateInfo(updateRecord *model.UpdateRecord) *apitype.UpdateInfo {
-	return &apitype.UpdateInfo{
-		Kind:        updateRecord.Kind,
-		Message:     "",
-		Environment: updateRecord.Metadata.Environment,
-		Config:      updateRecord.Config,
-		StartTime:   updateRecord.StartTime.Unix(),
-		EndTime:     updateRecord.EndTime.Unix(),
-		Result:      model.ConvertUpdateStatus(updateRecord.Results.Status),
-		Version:     updateRecord.Version,
+func createUpdateInfo(updateRecord *model.UpdateRecord) apitype.UpdateInfo {
+	return apitype.UpdateInfo{
+		Kind:            updateRecord.Kind,
+		Message:         "",
+		Environment:     updateRecord.Metadata.Environment,
+		Config:          updateRecord.Config,
+		StartTime:       updateRecord.StartTime.Unix(),
+		EndTime:         updateRecord.EndTime.Unix(),
+		Result:          model.ConvertUpdateStatus(updateRecord.Results.Status),
+		ResourceChanges: updateRecord.ResourceChanges,
+		ResourceCount:   updateRecord.ResourceCount,
+		Version:         updateRecord.Version,
 	}
 }
 
 func createStackUpdate(stackRecord *model.StackRecord, updateRecord *model.UpdateRecord) *model.StackUpdate {
 	return &model.StackUpdate{
-		Info:        *createUpdateInfo(updateRecord),
+		Info:        createUpdateInfo(updateRecord),
 		RequestedBy: updateRecord.RequestedBy,
 		GetDeploymentUpdatesUpdateInfo: apitype.GetDeploymentUpdatesUpdateInfo{
 			UpdateID:      updateRecord.ID,
@@ -337,4 +449,10 @@ func createStackUpdate(stackRecord *model.StackRecord, updateRecord *model.Updat
 			LatestVersion: stackRecord.Stack.Version,
 		},
 	}
+}
+
+type ListUpdateOptions struct {
+	PageSize   int
+	Page       int
+	Descending bool
 }

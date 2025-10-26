@@ -2,7 +2,6 @@ package state
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"time"
 
@@ -67,7 +66,7 @@ func (p *Service) GetStackUpdate(identifier client.StackIdentifier, version stri
 		DryRun:  util.Ptr(false),
 	}
 
-	if err := p.store.Read(updateRecord, model.ServiceUserInfo{}); err != nil {
+	if err := p.store.Read(updateRecord, store.Join(model.ServiceUserInfo{})); err != nil {
 		return nil, err
 	}
 
@@ -114,14 +113,9 @@ func (p *Service) GetStackDeployment(identifier client.StackIdentifier) (*apityp
 
 }
 
-func (p *Service) ListStackResources(stackIdentifier client.StackIdentifier, version string) ([]apitype.ResourceV3, error) {
-	update, err := p.GetStackUpdate(stackIdentifier, version)
-	if err != nil {
-		return nil, err
-	}
-
+func (p *Service) ListStackResources(identifier client.UpdateIdentifier) ([]apitype.ResourceV3, error) {
 	checkpointRecord := &model.CheckpointRecord{
-		UpdateID: update.UpdateID,
+		UpdateID: identifier.UpdateID,
 	}
 
 	if err := p.store.Read(checkpointRecord); err != nil {
@@ -133,8 +127,6 @@ func (p *Service) ListStackResources(stackIdentifier client.StackIdentifier, ver
 	if err := json.Unmarshal(checkpointRecord.Checkpoint.Checkpoint, &deployment); err != nil {
 		return nil, err
 	}
-
-	fmt.Printf("u %+v\n", checkpointRecord)
 
 	return deployment.Resources, nil
 }
@@ -156,10 +148,10 @@ func (p *Service) ParseStackVersion(stack *apitype.Stack, version string) (int, 
 	return versionNumber, nil
 }
 
-func readStackRecord(s *store.Postgres, identifier client.StackIdentifier, preloads ...interface{}) (*model.StackRecord, error) {
+func readStackRecord(s *store.Postgres, identifier client.StackIdentifier, opts ...store.DBOption) (*model.StackRecord, error) {
 	stackRecord := StackRecord(identifier)
 
-	err := s.Read(stackRecord, preloads...)
+	err := s.Read(stackRecord, opts...)
 	if err != nil {
 		return nil, err
 	}

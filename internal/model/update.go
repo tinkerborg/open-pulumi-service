@@ -8,24 +8,26 @@ import (
 )
 
 type UpdateRecord struct {
-	ID          string                         `gorm:"index;type:uuid;default:gen_random_uuid()"`
-	StackID     string                         `gorm:"type:uuid;uniqueIndex:idx_stack_id_version_dry_run,where:dry_run=false;index:idx_stack_id_version,where:dry_run=true"`
-	Version     int                            `gorm:"uniqueIndex:idx_stack_id_version_dry_run,where:dry_run=false;index:idx_stack_id_version,where:dry_run=true"`
-	DryRun      *bool                          `gorm:"uniqueIndex:idx_stack_id_version_dry_run,where:dry_run=false;index:idx_stack_id_version,where:dry_run=true"`
-	Update      *apitype.UpdateProgram         `gorm:"type:jsonb;serializer:json"`
-	Options     *apitype.UpdateOptions         `gorm:"type:jsonb;serializer:json"`
-	Config      map[string]apitype.ConfigValue `gorm:"type:jsonb;serializer:json"`
-	Metadata    *apitype.UpdateMetadata        `gorm:"type:jsonb;serializer:json"`
-	Results     apitype.UpdateResults          `gorm:"type:jsonb;serializer:json"`
-	UserID      string                         `gorm:"type:uuid;index"`
-	RequestedBy *ServiceUserInfo               `gorm:"foreignKey:UserID"`
-	Checkpoint  CheckpointRecord               `gorm:"foreignKey:UpdateID;constraint:OnDelete:CASCADE"`
-	Events      []EngineEventRecord            `gorm:"foreignKey:UpdateID;constraint:OnDelete:CASCADE"`
-	Kind        apitype.UpdateKind
-	StartTime   time.Time
-	EndTime     time.Time
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID              string                         `gorm:"index;type:uuid;default:gen_random_uuid()"`
+	StackID         string                         `gorm:"type:uuid;idx_stack_id_version_dryrun"`
+	Version         int                            `gorm:"index:idx_stack_id_version_dryrun"`
+	DryRun          *bool                          `gorm:"index:idx_stack_id_version_dryrun"`
+	Update          *apitype.UpdateProgram         `gorm:"type:jsonb;serializer:json"`
+	Options         *apitype.UpdateOptions         `gorm:"type:jsonb;serializer:json"`
+	Config          map[string]apitype.ConfigValue `gorm:"type:jsonb;serializer:json"`
+	Metadata        *apitype.UpdateMetadata        `gorm:"type:jsonb;serializer:json"`
+	Results         apitype.UpdateResults          `gorm:"type:jsonb;serializer:json"`
+	UserID          string                         `gorm:"type:uuid;index"`
+	RequestedBy     ServiceUserInfo                `gorm:"foreignKey:UserID"`
+	Checkpoint      CheckpointRecord               `gorm:"foreignKey:UpdateID;constraint:OnDelete:CASCADE"`
+	Events          []EngineEventRecord            `gorm:"foreignKey:UpdateID;constraint:OnDelete:CASCADE"`
+	ResourceChanges ResourceChanges                `gorm:"type:jsonb;serializer:json"`
+	ResourceCount   int
+	Kind            apitype.UpdateKind
+	StartTime       time.Time
+	EndTime         time.Time
+	CreatedAt       time.Time `gorm:"orderBy"`
+	UpdatedAt       time.Time
 }
 
 type CheckpointRecord struct {
@@ -33,16 +35,9 @@ type CheckpointRecord struct {
 	Checkpoint *apitype.VersionedCheckpoint `gorm:"type:jsonb;serializer:json"`
 }
 
-// type CheckpointRecord struct {
-// 	ID         string          `gorm:"index;type:uuid;default:gen_random_uuid()"`
-// 	Features   []string        `json:"features,omitempty" gorm:"type:jsonb;serializer:json"`
-// 	Checkpoint json.RawMessage `json:"checkpoint" gorm:"type:jsonb;serializer:json"`
-// 	Version    int
-// }
-
 type EngineEventRecord struct {
 	UpdateID    string               `gorm:"primaryKey;type:text"`
-	Sequence    int                  `gorm:"primaryKey"`
+	Sequence    int                  `gorm:"primaryKey;orderBy"`
 	EngineEvent *apitype.EngineEvent `gorm:"type:jsonb;serializer:json"`
 }
 
@@ -57,6 +52,8 @@ type StackUpdate struct {
 type CompleteUpdateResponse struct {
 	Version int `json:"version" yaml:"version"`
 }
+
+type ResourceChanges map[apitype.OpType]int
 
 func ParseUpdateKind(kind string) (apitype.UpdateKind, error) {
 	switch apitype.UpdateKind(kind) {
